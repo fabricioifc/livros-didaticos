@@ -399,6 +399,7 @@ class LibraryAppTest(unittest.TestCase):
         page = self.client.get("/")
         self.assertEqual(page.status_code, 200)
         self.assertIn(b"Importar CSV", page.data)
+        self.assertIn(b"Exportar backup anual", page.data)
         self.assertIn(b"/static/styles.css", page.data)
         self.assertIn(b"/static/app.js", page.data)
         with self.client.get("/static/styles.css") as styles:

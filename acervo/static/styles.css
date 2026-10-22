@@ -262,6 +262,7 @@ th:first-child, td:first-child { padding-left: 2px; }
   .print-header div { display: grid; }
   .print-header > span { font-size: 7pt; }
   .print-term h1 { margin: 8mm 0 5mm; font: bold 14pt Arial, sans-serif; text-align: center; text-transform: uppercase; }
+  .print-term:not(:last-child) { break-after: page; page-break-after: always; }
   .print-term > p { text-align: justify; }
   .print-term h2 { margin: 6mm 0 2mm; font: bold 10pt Arial, sans-serif; text-transform: uppercase; }
   .print-term ol { padding-left: 6mm; }

@@ -343,8 +343,7 @@ function clearCanvas() {
   $("#signature-placeholder").hidden = false;
 }
 
-function buildPrintTerm(student) {
-  const date = formatDate(new Date().toISOString());
+function buildPrintTermMarkup(student, date) {
   const rules = [
     "Em caso de desistência do curso ou transferência para outra instituição, os livros deverão ser devolvidos para a liberação da transferência e/ou formalização da desistência.",
     "Em caso de perda, roubo ou dano aos livros didáticos, não haverá reposição destes itens ao(à) estudante.",
@@ -354,7 +353,7 @@ function buildPrintTerm(student) {
     <td>${book.checkout_signature ? `<img src="${escapeHtml(book.checkout_signature)}" alt="Assinatura do estudante"><small>${formatDate(book.checkout_at)}</small>` : '<span class="print-blank">Pendente</span>'}</td>
     <td>${book.return_signature ? `<img src="${escapeHtml(book.return_signature)}" alt="Assinatura do servidor"><small>${formatDate(book.return_at)}</small>` : '<span class="print-blank">Pendente</span>'}</td>
   </tr>`).join("");
-  $("#print-container").innerHTML = `<article class="print-term">
+  return `<article class="print-term">
     <header class="print-header"><div><strong>INSTITUTO FEDERAL CATARINENSE</strong><span>Campus Fraiburgo</span></div><span>TERMO DE COMPROMISSO · ${student.school_year}</span></header>
     <h1>Termo de compromisso com os livros didáticos</h1>
     <p>Eu, <strong>${escapeHtml(student.name)}</strong>, matrícula <strong>${escapeHtml(student.enrollment)}</strong>, estudante do <strong>${escapeHtml(student.grade)} ano</strong> do curso Técnico em Informática Integrado ao Ensino Médio, declaro que recebi os livros relacionados neste termo ao longo do curso e assumo a responsabilidade de devolvê-los em perfeito estado de conservação ao final do Ensino Médio, em caso de transferência para outra instituição ou de desistência do curso.</p>
@@ -362,7 +361,42 @@ function buildPrintTerm(student) {
     <table class="print-table"><thead><tr><th>Título do volume</th><th>Assinatura do estudante<br>no empréstimo</th><th>Assinatura do servidor<br>na devolução</th></tr></thead><tbody>${rows}</tbody></table>
     <footer class="print-footer"><span>Fraiburgo, ${date}</span><span>Rua Cruz e Souza, nº 100 · Centro · Fraiburgo/SC · (49) 3202-8800</span></footer>
   </article>`;
+}
+
+function printTerms(students, documentTitle) {
+  const date = formatDate(new Date().toISOString());
+  $("#print-container").innerHTML = students
+    .map((student) => buildPrintTermMarkup(student, date))
+    .join("");
+  const previousTitle = document.title;
+  document.title = documentTitle;
+  window.addEventListener("afterprint", () => {
+    document.title = previousTitle;
+    $("#print-container").replaceChildren();
+  }, { once: true });
   window.setTimeout(() => window.print(), 100);
+}
+
+function buildPrintTerm(student) {
+  printTerms([student], `termo-livros-${student.school_year}-${student.enrollment}`);
+}
+
+async function exportAnnualBackup() {
+  const button = $("#export-annual-backup-button");
+  button.disabled = true;
+  try {
+    await refreshStudents();
+    const currentTerms = state.students.filter((student) => student.school_year === state.schoolYear);
+    if (!currentTerms.length) {
+      notify(`Não há termos registrados para ${state.schoolYear}.`, "error");
+      return;
+    }
+    printTerms(currentTerms, `backup-termos-${state.schoolYear}`);
+  } catch (error) {
+    notify(error.message, "error");
+  } finally {
+    button.disabled = false;
+  }
 }
 
 async function refreshCurrentStudent() {
@@ -482,6 +516,7 @@ document.addEventListener("click", (event) => {
 
 $$("[data-close]").forEach((button) => button.addEventListener("click", () => $(`#${button.dataset.close}`).close()));
 $("#export-term-button").addEventListener("click", () => buildPrintTerm(state.currentStudent));
+$("#export-annual-backup-button").addEventListener("click", exportAnnualBackup);
 $("#detail-year-select").addEventListener("change", (event) => selectStudentYear(Number(event.target.value)));
 $("#clear-signature").addEventListener("click", clearCanvas);
 elements.canvas.addEventListener("pointerdown", startDrawing);

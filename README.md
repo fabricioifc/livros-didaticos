@@ -118,6 +118,7 @@ Para atualizar as imagens após mudanças, execute `docker compose up --build -d
 - Abra o termo para registrar a assinatura manuscrita do estudante em cada título entregue.
 - Na devolução, o servidor registra a assinatura título por título. A devolução só fica disponível depois da entrega.
 - Use **Exportar PDF** e escolha **Salvar como PDF** no diálogo de impressão do navegador. O termo inclui o registro de cada assinatura já feita e os espaços ainda pendentes.
+- Na tela **Estudantes**, use **Exportar backup anual** para reunir em um único PDF todos os termos do ano letivo atual com o status de entrega/devolução vigente. No diálogo de impressão, selecione **Salvar como PDF**; cada termo começa em uma nova página. Estudantes concluídos em anos anteriores, sem termo no ciclo atual, não são incluídos.
 
 Exemplo de CSV (UTF-8, cabeçalhos na primeira linha):
 
