@@ -72,6 +72,19 @@ def initialize_db(database_path, school_year):
                 return_by TEXT,
                 PRIMARY KEY (enrollment, book_id)
             );
+            CREATE TABLE IF NOT EXISTS book_signature_history (
+                id INTEGER PRIMARY KEY,
+                enrollment TEXT NOT NULL REFERENCES students(enrollment) ON DELETE CASCADE,
+                book_id TEXT NOT NULL,
+                school_year INTEGER NOT NULL,
+                action TEXT NOT NULL CHECK (
+                    action IN ('checkout', 'return', 'cancel_checkout', 'cancel_return')
+                ),
+                signature TEXT,
+                recorded_at TEXT NOT NULL,
+                actor_email TEXT,
+                reason TEXT
+            );
             CREATE TABLE IF NOT EXISTS student_years (
                 enrollment TEXT NOT NULL REFERENCES students(enrollment) ON DELETE CASCADE,
                 school_year INTEGER NOT NULL,
@@ -135,6 +148,32 @@ def initialize_db(database_path, school_year):
         _migrate_legacy_book_ids(db)
         _initialize_school_years(db, school_year)
         _backfill_school_year_books(db)
+        db.execute(
+            """INSERT INTO book_signature_history
+                   (enrollment, book_id, school_year, action, signature, recorded_at, actor_email)
+               SELECT b.enrollment, b.book_id, b.issue_year, 'checkout',
+                      b.checkout_signature, COALESCE(b.checkout_at, ''), NULL
+               FROM book_signatures b
+               WHERE b.checkout_signature IS NOT NULL
+                 AND NOT EXISTS (
+                     SELECT 1 FROM book_signature_history h
+                     WHERE h.enrollment = b.enrollment AND h.book_id = b.book_id
+                       AND h.action = 'checkout'
+                 )"""
+        )
+        db.execute(
+            """INSERT INTO book_signature_history
+                   (enrollment, book_id, school_year, action, signature, recorded_at, actor_email)
+               SELECT b.enrollment, b.book_id, b.issue_year, 'return',
+                      b.return_signature, COALESCE(b.return_at, ''), b.return_by
+               FROM book_signatures b
+               WHERE b.return_signature IS NOT NULL
+                 AND NOT EXISTS (
+                     SELECT 1 FROM book_signature_history h
+                     WHERE h.enrollment = b.enrollment AND h.book_id = b.book_id
+                       AND h.action = 'return'
+                 )"""
+        )
 
 
 def _migrate_legacy_book_ids(db):
@@ -674,7 +713,7 @@ def record_signature(
     action,
     signature,
     signed_at,
-    return_by,
+    actor_email,
     school_year,
     student_qr_code=None,
 ):
@@ -709,10 +748,85 @@ def record_signature(
                    WHERE enrollment = ? AND book_id = ?""",
                 (signature, signed_at, enrollment, book_id),
             )
+            db.execute(
+                """INSERT INTO book_signature_history
+                       (enrollment, book_id, school_year, action, signature, recorded_at, actor_email)
+                   VALUES (?, ?, ?, 'checkout', ?, ?, ?)""",
+                (enrollment, book_id, school_year, signature, signed_at, actor_email),
+            )
         else:
             db.execute(
                 """UPDATE book_signatures SET return_signature = ?, return_at = ?, return_by = ?
                    WHERE enrollment = ? AND book_id = ?""",
-                (signature, signed_at, return_by, enrollment, book_id),
+                (signature, signed_at, actor_email, enrollment, book_id),
             )
+            db.execute(
+                """INSERT INTO book_signature_history
+                       (enrollment, book_id, school_year, action, signature, recorded_at, actor_email)
+                   VALUES (?, ?, ?, 'return', ?, ?, ?)""",
+                (enrollment, book_id, school_year, signature, signed_at, actor_email),
+            )
+    return None
+
+
+def get_book_signature_history(database_path, enrollment, book_id):
+    with database(database_path) as db:
+        if not db.execute(
+            """SELECT 1 FROM book_signatures
+               WHERE enrollment = ? AND book_id = ?""",
+            (enrollment, book_id),
+        ).fetchone():
+            return None
+        rows = db.execute(
+            """SELECT id, school_year, action, signature, recorded_at,
+                      actor_email, reason
+               FROM book_signature_history
+               WHERE enrollment = ? AND book_id = ?
+               ORDER BY id DESC""",
+            (enrollment, book_id),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def cancel_book_signature(
+    database_path, enrollment, book_id, action, reason, recorded_at, actor_email, school_year
+):
+    with database(database_path) as db:
+        book = db.execute(
+            """SELECT checkout_signature, return_signature
+               FROM book_signatures WHERE enrollment = ? AND book_id = ?""",
+            (enrollment, book_id),
+        ).fetchone()
+        if not book:
+            return "book_not_found"
+        if action == "return":
+            if not book["return_signature"]:
+                return "return_not_found"
+            db.execute(
+                """UPDATE book_signatures
+                   SET return_signature = NULL, return_at = NULL, return_by = NULL
+                   WHERE enrollment = ? AND book_id = ?""",
+                (enrollment, book_id),
+            )
+            history_action = "cancel_return"
+        elif action == "checkout":
+            if not book["checkout_signature"]:
+                return "checkout_not_found"
+            if book["return_signature"]:
+                return "return_must_be_cancelled_first"
+            db.execute(
+                """UPDATE book_signatures
+                   SET checkout_signature = NULL, checkout_at = NULL
+                   WHERE enrollment = ? AND book_id = ?""",
+                (enrollment, book_id),
+            )
+            history_action = "cancel_checkout"
+        else:
+            return "invalid_action"
+        db.execute(
+            """INSERT INTO book_signature_history
+                   (enrollment, book_id, school_year, action, recorded_at, actor_email, reason)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (enrollment, book_id, school_year, history_action, recorded_at, actor_email, reason),
+        )
     return None

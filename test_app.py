@@ -241,6 +241,95 @@ class LibraryAppTest(unittest.TestCase):
         )
         self.assertEqual(blocked_correct_code.status_code, 429)
 
+    def test_book_signature_history_and_cancellation_preserve_all_events(self):
+        self.login()
+        created = self.client.post(
+            "/api/students",
+            json={"name": "Ana Silva", "enrollment": "2026001", "grade": "1º"},
+            headers={"X-CSRF-Token": self.csrf()},
+        )
+        self.assertEqual(created.status_code, 201)
+        signature = "data:image/png;base64," + base64.b64encode(
+            b"\x89PNG\r\n\x1a\nvalid-test-image"
+        ).decode()
+        checkout = self.client.put(
+            "/api/students/2026001/books/portugues-2026-1/checkout",
+            json={
+                "signature": signature,
+                "student_qr_code": self.student_qr_code("2026001"),
+            },
+            headers={"X-CSRF-Token": self.csrf()},
+        )
+        self.assertEqual(checkout.status_code, 200)
+        returned = self.client.put(
+            "/api/students/2026001/books/portugues-2026-1/return",
+            json={"signature": signature},
+            headers={"X-CSRF-Token": self.csrf()},
+        )
+        self.assertEqual(returned.status_code, 200)
+
+        history_path = "/api/students/2026001/books/portugues-2026-1/history"
+        initial_history = self.client.get(history_path)
+        self.assertEqual(initial_history.status_code, 200)
+        self.assertEqual(
+            [entry["action"] for entry in initial_history.get_json()["history"]],
+            ["return", "checkout"],
+        )
+        self.assertEqual(
+            initial_history.get_json()["history"][0]["actor_email"],
+            "servidor@ifc.edu.br",
+        )
+
+        cancel_checkout_early = self.client.post(
+            "/api/students/2026001/books/portugues-2026-1/checkout/cancel",
+            json={"reason": "Corrigir sequência"},
+            headers={"X-CSRF-Token": self.csrf()},
+        )
+        self.assertEqual(cancel_checkout_early.status_code, 409)
+        self.assertIn("Cancele a devolução", cancel_checkout_early.get_json()["error"])
+        invalid_reason = self.client.post(
+            "/api/students/2026001/books/portugues-2026-1/return/cancel",
+            json={"reason": "erro"},
+            headers={"X-CSRF-Token": self.csrf()},
+        )
+        self.assertEqual(invalid_reason.status_code, 400)
+
+        cancelled_return = self.client.post(
+            "/api/students/2026001/books/portugues-2026-1/return/cancel",
+            json={"reason": "A devolução foi registrada por engano."},
+            headers={"X-CSRF-Token": self.csrf()},
+        )
+        self.assertEqual(cancelled_return.status_code, 200)
+        book = next(
+            item for item in cancelled_return.get_json()["books"]
+            if item["id"] == "portugues-2026-1"
+        )
+        self.assertTrue(book["checkout_signature"])
+        self.assertIsNone(book["return_signature"])
+
+        cancelled_checkout = self.client.post(
+            "/api/students/2026001/books/portugues-2026-1/checkout/cancel",
+            json={"reason": "A assinatura ficou ilegível e será refeita."},
+            headers={"X-CSRF-Token": self.csrf()},
+        )
+        self.assertEqual(cancelled_checkout.status_code, 200)
+        book = next(
+            item for item in cancelled_checkout.get_json()["books"]
+            if item["id"] == "portugues-2026-1"
+        )
+        self.assertIsNone(book["checkout_signature"])
+        self.assertIsNone(book["return_signature"])
+        history = self.client.get(history_path).get_json()["history"]
+        self.assertEqual(
+            [entry["action"] for entry in history],
+            ["cancel_checkout", "cancel_return", "return", "checkout"],
+        )
+        self.assertEqual(
+            history[0]["reason"],
+            "A assinatura ficou ilegível e será refeita.",
+        )
+        self.assertEqual(history[0]["actor_email"], "servidor@ifc.edu.br")
+
     def test_student_portal_is_publicly_rendered(self):
         response = self.client.get("/aluno")
         self.assertEqual(response.status_code, 200)
@@ -804,6 +893,12 @@ class LibraryAppTest(unittest.TestCase):
             book for book in prior_term["books"] if book["id"] == "portugues-2026-1"
         )
         self.assertEqual(migrated_portuguese["checkout_signature"], "assinatura-preservada")
+        migrated_history = repository.get_book_signature_history(
+            str(database_path), "2026002", "portugues-2026-1"
+        )
+        self.assertEqual(len(migrated_history), 1)
+        self.assertEqual(migrated_history[0]["action"], "checkout")
+        self.assertEqual(migrated_history[0]["signature"], "assinatura-preservada")
         current_term = find_student(str(database_path), "2026002", 2027)
         self.assertEqual(current_term["grade"], "2º")
         carried_history = next(book for book in current_term["books"] if book["id"] == "historia")

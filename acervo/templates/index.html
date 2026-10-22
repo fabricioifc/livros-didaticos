@@ -163,8 +163,25 @@
       <div class="signature-pad-wrap"><canvas id="signature-canvas" aria-label="Área para desenhar a assinatura"></canvas><span class="signature-placeholder" id="signature-placeholder">Assine aqui com o dedo ou a caneta</span></div>
       <div class="signature-controls"><span>Assinatura manuscrita na tela</span><button class="text-button" type="button" id="clear-signature">Limpar</button></div>
       <p class="signature-consent" id="signature-consent">Ao assinar, o estudante confirma o recebimento deste título e se compromete com as regras de utilização do termo.</p>
+      <button class="text-button signature-history-link" id="signature-history-button" type="button">Ver histórico e corrigir registro</button>
       <div class="dialog-actions"><button class="button button--secondary" type="button" data-close="signature-dialog">Cancelar</button><button class="button button--primary" type="submit">Confirmar assinatura <span>→</span></button></div>
     </form>
+  </dialog>
+
+  <dialog id="book-history-dialog" class="dialog dialog--history">
+    <div class="dialog-heading"><div><span class="eyebrow">HISTÓRICO DO LIVRO</span><h2 id="book-history-title"></h2><p>Assinaturas e correções registradas, da mais recente para a mais antiga.</p></div><button class="dialog-close" type="button" data-close="book-history-dialog" aria-label="Fechar">×</button></div>
+    <ol class="book-history-list" id="book-history-list"></ol>
+    <section class="history-correction" id="history-correction">
+      <p class="signature-consent">O cancelamento não apaga o histórico. Informe o motivo para registrar a correção.</p>
+      <label class="field-label" id="history-correction-label" for="history-correction-reason">Motivo da correção</label>
+      <textarea class="text-input history-reason" id="history-correction-reason" rows="3" maxlength="500" minlength="5" placeholder="Ex.: assinatura ilegível; será refeita." required></textarea>
+      <div class="dialog-actions history-actions">
+        <button class="button button--secondary" id="cancel-checkout-button" type="button" hidden>Cancelar entrega</button>
+        <button class="button button--secondary" id="cancel-return-button" type="button" hidden>Cancelar devolução</button>
+      </div>
+      <p id="history-action-message" class="history-action-message" role="status" aria-live="polite"></p>
+    </section>
+    <div class="dialog-actions history-close"><button class="button button--secondary" type="button" data-close="book-history-dialog">Fechar</button></div>
   </dialog>
 
   <dialog id="student-access-dialog" class="dialog dialog--form">

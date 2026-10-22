@@ -441,6 +441,39 @@ def get_student(enrollment):
     return jsonify(student)
 
 
+@main.get("/api/students/<enrollment>/books/<book_id>/history")
+@login_required
+def get_book_history(enrollment, book_id):
+    try:
+        history = services.get_book_signature_history(
+            current_app.config["DATABASE_PATH"], enrollment, book_id
+        )
+    except services.ServiceError as error:
+        return handle_service_error(error)
+    return jsonify({"history": history})
+
+
+@main.post("/api/students/<enrollment>/books/<book_id>/<action>/cancel")
+@login_required
+def cancel_book_signature(enrollment, book_id, action):
+    error = csrf_error()
+    if error:
+        return error
+    try:
+        student = services.cancel_book_signature(
+            current_app.config["DATABASE_PATH"],
+            enrollment,
+            book_id,
+            action,
+            request_body(),
+            g.user_email,
+            current_app.config["SCHOOL_YEAR"],
+        )
+    except services.ServiceError as error:
+        return handle_service_error(error)
+    return jsonify(student)
+
+
 @main.put("/api/students/<enrollment>/books/<book_id>/<action>")
 @login_required
 def record_signature(enrollment, book_id, action):
