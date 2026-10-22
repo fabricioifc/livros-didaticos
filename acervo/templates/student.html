@@ -40,16 +40,13 @@
       </form>
       <section id="student-qr-section" class="student-qr-section" hidden>
         <p class="student-welcome" id="student-welcome"></p>
-        <p>Apresente este código ao servidor no momento da retirada. O código é individual, pode ser usado para registrar vários livros e expira rapidamente.</p>
+        <p>Apresente este QR Code ou o número de 6 dígitos ao servidor. O código pode ser usado para registrar vários livros e expira em 90 segundos.</p>
         <div id="student-qr-display" class="student-qr-display">
           <span>Seu código ainda não foi gerado.</span>
         </div>
         <p id="student-qr-countdown" class="student-qr-countdown" aria-live="polite"></p>
-        <details class="student-token-fallback">
-          <summary>Problema com a câmera? Mostrar token para leitura manual</summary>
-          <code id="student-qr-token"></code>
-          <button id="copy-student-qr-token" class="button button--secondary" type="button">Copiar token</button>
-        </details>
+        <p class="student-qr-code-label">Código para digitação manual</p>
+        <p id="student-qr-code" class="student-qr-code" aria-label="Código numérico para validação">------</p>
         <button id="generate-student-qr" class="button button--primary button--wide" type="button">Gerar QR Code temporário</button>
         <button id="student-logout" class="text-button student-logout" type="button">Sair da conta</button>
       </section>

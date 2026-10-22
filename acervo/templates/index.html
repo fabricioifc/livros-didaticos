@@ -147,12 +147,12 @@
   </dialog>
 
   <dialog id="qr-scan-dialog" class="dialog dialog--signature">
-    <div class="dialog-heading"><div><span class="eyebrow">VALIDAÇÃO DO ESTUDANTE</span><h2>Escaneie o QR Code</h2><p id="qr-scan-status">Peça ao estudante para gerar um QR Code no celular.</p></div><button class="dialog-close" type="button" data-close="qr-scan-dialog" aria-label="Fechar">×</button></div>
+    <div class="dialog-heading"><div><span class="eyebrow">VALIDAÇÃO DO ESTUDANTE</span><h2>Escaneie o QR Code</h2><p id="qr-scan-status" role="alert" aria-live="polite">Peça ao estudante para gerar um QR Code no celular.</p></div><button class="dialog-close" type="button" data-close="qr-scan-dialog" aria-label="Fechar">×</button></div>
     <video id="qr-camera" class="qr-camera" playsinline muted hidden></video>
     <form id="qr-manual-form" class="qr-manual-form">
-      <label class="field-label" for="qr-manual-token">Ou cole o código do estudante</label>
-      <textarea class="text-input" id="qr-manual-token" rows="3" autocomplete="off"></textarea>
-      <button class="button button--secondary" type="submit">Validar código</button>
+      <label class="field-label" for="qr-manual-code">Se não for possível ler o QR, digite o código de 6 dígitos mostrado pelo estudante</label>
+      <input class="text-input qr-manual-code" id="qr-manual-code" type="text" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" aria-describedby="qr-scan-status" required>
+      <button class="button button--secondary" type="submit">Confirmar código</button>
     </form>
     <div class="dialog-actions"><button class="button button--secondary" type="button" data-close="qr-scan-dialog">Cancelar</button></div>
   </dialog>

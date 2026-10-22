@@ -208,8 +208,9 @@ th:first-child, td:first-child { padding-left: 2px; }
 .qr-camera { width: 100%; max-height: 50vh; margin: 14px 0; border-radius: 8px; background: #101713; object-fit: cover; }
 .qr-manual-form { display: grid; gap: 10px; padding: 0 24px 18px; }
 .qr-manual-form .field-label { margin: 0; }
-.qr-manual-form textarea { min-height: 70px; padding: 9px; font: 10px/1.4 monospace; resize: vertical; }
+.qr-manual-form .qr-manual-code { width: 180px; height: 52px; padding: 8px 12px; font: 700 24px/1 monospace; letter-spacing: .3em; text-align: center; }
 .qr-manual-form .button { justify-self: start; }
+.qr-scan-status--error { color: #a22e2e !important; font-weight: 600; }
 .student-temp-password { margin: 20px 27px; padding: 16px; border-radius: 7px; background: #f2f6f2; color: var(--green); font: 600 18px/1.4 monospace; overflow-wrap: anywhere; text-align: center; user-select: all; }
 .student-access-instructions { margin: 0 26px 12px; }
 .student-portal-qr { display: block; width: 180px; height: 180px; margin: 0 auto 8px; }
@@ -229,10 +230,8 @@ th:first-child, td:first-child { padding-left: 2px; }
 .student-qr-display { display: grid; min-height: 245px; place-items: center; margin: 20px 0 8px; padding: 16px; border: 1px dashed #cdd7cf; border-radius: 9px; color: #68736b; }
 .student-qr-display img { width: min(100%, 320px); height: auto; }
 .student-qr-countdown { min-height: 24px; font-weight: 600; color: var(--green) !important; }
-.student-token-fallback { margin: 14px 0 20px; text-align: left; }
-.student-token-fallback summary { color: #52715d; font-size: 12px; cursor: pointer; }
-.student-token-fallback code { display: block; max-height: 100px; margin: 10px 0; padding: 10px; overflow: auto; border-radius: 5px; background: #f3f5f3; color: #46534a; font-size: 10px; overflow-wrap: anywhere; user-select: all; }
-.student-token-fallback .button { min-height: 34px; }
+.student-qr-code-label { margin: 12px 0 3px; font-size: 12px; }
+.student-qr-code { margin: 0 0 20px; color: var(--green); font: 700 34px/1.3 monospace; letter-spacing: .32em; }
 .student-logout { margin-top: 20px; }
 .student-portal-footer { padding: 20px 0 32px; color: #68736b; font-size: 13px; text-align: center; }
 

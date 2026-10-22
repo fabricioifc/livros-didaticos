@@ -41,7 +41,7 @@ class LibraryAppTest(unittest.TestCase):
             headers={"X-CSRF-Token": token},
         )
 
-    def student_qr_token(self, enrollment):
+    def student_qr_code(self, enrollment):
         database_path = self.app.config["DATABASE_PATH"]
         if not repository.find_user(database_path, "fabricio.bizotto@ifc.edu.br"):
             create_user(
@@ -105,7 +105,7 @@ class LibraryAppTest(unittest.TestCase):
             headers={"X-CSRF-Token": student_csrf},
         )
         self.assertEqual(issued.status_code, 200)
-        return issued.get_json()["token"]
+        return issued.get_json()["code"]
 
     def test_login_requires_ifc_email(self):
         token = self.csrf()
@@ -135,39 +135,63 @@ class LibraryAppTest(unittest.TestCase):
         )
         self.assertEqual(missing_qr.status_code, 400)
 
-        qr_token = self.student_qr_token("2026001")
+        qr_code = self.student_qr_code("2026001")
+        self.assertRegex(qr_code, r"^\d{6}$")
         wrong_student = self.client.post(
             "/api/student-qr/verify",
-            json={"token": qr_token, "enrollment": "2026002"},
+            json={"code": qr_code, "enrollment": "2026002"},
             headers={"X-CSRF-Token": self.csrf()},
         )
         self.assertEqual(wrong_student.status_code, 409)
+        self.assertEqual(
+            wrong_student.get_json()["error"],
+            "Este QR Code pertence a outro estudante. Confira a matrícula selecionada.",
+        )
         valid_student = self.client.post(
             "/api/student-qr/verify",
-            json={"token": qr_token, "enrollment": "2026001"},
+            json={"code": qr_code, "enrollment": "2026001"},
             headers={"X-CSRF-Token": self.csrf()},
         )
         self.assertEqual(valid_student.status_code, 200)
         checked_out = self.client.put(
             "/api/students/2026001/books/portugues-2026-1/checkout",
-            json={"signature": signature, "student_qr_token": qr_token},
+            json={"signature": signature, "student_qr_code": qr_code},
             headers={"X-CSRF-Token": self.csrf()},
         )
         self.assertEqual(checked_out.status_code, 200)
         second_checkout = self.client.put(
             "/api/students/2026001/books/matematica-2026-1/checkout",
-            json={"signature": signature, "student_qr_token": qr_token},
+            json={"signature": signature, "student_qr_code": qr_code},
             headers={"X-CSRF-Token": self.csrf()},
         )
         self.assertEqual(second_checkout.status_code, 200)
         qr_still_valid = self.client.post(
             "/api/student-qr/verify",
-            json={"token": qr_token, "enrollment": "2026001"},
+            json={"code": qr_code, "enrollment": "2026001"},
             headers={"X-CSRF-Token": self.csrf()},
         )
         self.assertEqual(qr_still_valid.status_code, 200)
+        database = sqlite3.connect(self.app.config["DATABASE_PATH"])
+        try:
+            database.execute(
+                "UPDATE student_qr_tokens SET expires_at = 0 WHERE code = ?",
+                (qr_code,),
+            )
+            database.commit()
+        finally:
+            database.close()
+        expired = self.client.post(
+            "/api/student-qr/verify",
+            json={"code": qr_code, "enrollment": "2026001"},
+            headers={"X-CSRF-Token": self.csrf()},
+        )
+        self.assertEqual(expired.status_code, 401)
+        self.assertEqual(
+            expired.get_json()["error"],
+            "Código inválido ou expirado. Peça ao estudante para gerar um novo QR Code.",
+        )
 
-        old_token = self.student_qr_token("2026001")
+        old_code = self.student_qr_code("2026001")
         admin = self.app.test_client()
         admin_csrf = admin.get("/api/auth/session").get_json()["csrf_token"]
         admin_login = admin.post(
@@ -187,10 +211,35 @@ class LibraryAppTest(unittest.TestCase):
         self.assertEqual(reset.status_code, 200)
         invalidated = self.client.post(
             "/api/student-qr/verify",
-            json={"token": old_token, "enrollment": "2026001"},
+            json={"code": old_code, "enrollment": "2026001"},
             headers={"X-CSRF-Token": self.csrf()},
         )
         self.assertEqual(invalidated.status_code, 401)
+
+    def test_qr_code_validation_is_rate_limited_for_server(self):
+        self.login()
+        created = self.client.post(
+            "/api/students",
+            json={"name": "Ana Silva", "enrollment": "2026001", "grade": "1º"},
+            headers={"X-CSRF-Token": self.csrf()},
+        )
+        self.assertEqual(created.status_code, 201)
+        qr_code = self.student_qr_code("2026001")
+        invalid_code = f"{(int(qr_code) + 1) % 1_000_000:06d}"
+        for _ in range(5):
+            response = self.client.post(
+                "/api/student-qr/verify",
+                json={"code": invalid_code, "enrollment": "2026001"},
+                headers={"X-CSRF-Token": self.csrf()},
+            )
+        self.assertEqual(response.status_code, 429)
+        self.assertIn("Aguarde 15 minutos", response.get_json()["error"])
+        blocked_correct_code = self.client.post(
+            "/api/student-qr/verify",
+            json={"code": qr_code, "enrollment": "2026001"},
+            headers={"X-CSRF-Token": self.csrf()},
+        )
+        self.assertEqual(blocked_correct_code.status_code, 429)
 
     def test_student_portal_is_publicly_rendered(self):
         response = self.client.get("/aluno")
@@ -531,7 +580,7 @@ class LibraryAppTest(unittest.TestCase):
             "/api/students/2026001/books/portugues-2026-1/checkout",
             json={
                 "signature": signature,
-                "student_qr_token": self.student_qr_token("2026001"),
+                "student_qr_code": self.student_qr_code("2026001"),
             },
             headers={"X-CSRF-Token": self.csrf()},
         )
@@ -548,7 +597,7 @@ class LibraryAppTest(unittest.TestCase):
             "/api/students/2026001/books/matematica-2026-1/checkout",
             json={
                 "signature": signature,
-                "student_qr_token": self.student_qr_token("2026001"),
+                "student_qr_code": self.student_qr_code("2026001"),
             },
             headers={"X-CSRF-Token": self.csrf()},
         )
@@ -584,7 +633,7 @@ class LibraryAppTest(unittest.TestCase):
             "/api/students/2026001/books/historia/checkout",
             json={
                 "signature": signature,
-                "student_qr_token": self.student_qr_token("2026001"),
+                "student_qr_code": self.student_qr_code("2026001"),
             },
             headers={"X-CSRF-Token": self.csrf()},
         )
@@ -619,7 +668,7 @@ class LibraryAppTest(unittest.TestCase):
             "/api/students/2026001/books/portugues-2026-1/checkout",
             json={
                 "signature": signature,
-                "student_qr_token": self.student_qr_token("2026001"),
+                "student_qr_code": self.student_qr_code("2026001"),
             },
             headers={"X-CSRF-Token": self.csrf()},
         )
@@ -661,7 +710,7 @@ class LibraryAppTest(unittest.TestCase):
                     "/api/students/2026001/books/ingles/checkout",
                     json={
                         "signature": signature,
-                        "student_qr_token": self.student_qr_token("2026001"),
+                        "student_qr_code": self.student_qr_code("2026001"),
                     },
                     headers={"X-CSRF-Token": self.csrf()},
                 )

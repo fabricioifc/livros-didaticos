@@ -49,9 +49,16 @@ def initialize_db(database_path, school_year):
                 locked_until INTEGER NOT NULL DEFAULT 0
             );
             CREATE TABLE IF NOT EXISTS student_qr_tokens (
-                jti TEXT PRIMARY KEY,
+                code TEXT PRIMARY KEY,
                 enrollment TEXT NOT NULL REFERENCES students(enrollment) ON DELETE CASCADE,
-                expires_at INTEGER NOT NULL
+                expires_at INTEGER NOT NULL,
+                school_year INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS student_qr_attempts (
+                user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+                failed_attempts INTEGER NOT NULL DEFAULT 0,
+                window_started INTEGER NOT NULL DEFAULT 0,
+                locked_until INTEGER NOT NULL DEFAULT 0
             );
             CREATE TABLE IF NOT EXISTS book_signatures (
                 enrollment TEXT NOT NULL REFERENCES students(enrollment) ON DELETE CASCADE,
@@ -106,6 +113,20 @@ def initialize_db(database_path, school_year):
         if "locked_until" not in credential_columns:
             db.execute(
                 "ALTER TABLE student_credentials ADD COLUMN locked_until INTEGER NOT NULL DEFAULT 0"
+            )
+        qr_columns = {
+            row["name"]
+            for row in db.execute("PRAGMA table_info(student_qr_tokens)").fetchall()
+        }
+        if not {"code", "school_year"}.issubset(qr_columns):
+            db.execute("DROP TABLE student_qr_tokens")
+            db.execute(
+                """CREATE TABLE student_qr_tokens (
+                    code TEXT PRIMARY KEY,
+                    enrollment TEXT NOT NULL REFERENCES students(enrollment) ON DELETE CASCADE,
+                    expires_at INTEGER NOT NULL,
+                    school_year INTEGER NOT NULL
+                )"""
             )
         db.execute(
             "UPDATE users SET is_admin = 1 WHERE lower(email) = ?",
@@ -375,26 +396,77 @@ def change_student_password(database_path, enrollment, password_hash):
     return cursor.rowcount == 1
 
 
-def issue_student_qr(database_path, enrollment, jti, expires_at):
-    with database(database_path) as db:
-        db.execute(
-            "DELETE FROM student_qr_tokens WHERE enrollment = ?", (enrollment,)
-        )
-        db.execute(
-            """INSERT INTO student_qr_tokens (jti, enrollment, expires_at)
-               VALUES (?, ?, ?)""",
-            (jti, enrollment, expires_at),
-        )
+def issue_student_qr(database_path, enrollment, code, expires_at, school_year):
+    try:
+        with database(database_path) as db:
+            db.execute("BEGIN IMMEDIATE")
+            if db.execute(
+                "SELECT 1 FROM student_qr_tokens WHERE code = ?", (code,)
+            ).fetchone():
+                return False
+            db.execute(
+                "DELETE FROM student_qr_tokens WHERE enrollment = ?", (enrollment,)
+            )
+            db.execute(
+                """INSERT INTO student_qr_tokens (code, enrollment, expires_at, school_year)
+                   VALUES (?, ?, ?, ?)""",
+                (code, enrollment, expires_at, school_year),
+            )
+    except sqlite3.IntegrityError as error:
+        if "student_qr_tokens.code" in str(error):
+            return False
+        raise
+    return True
 
 
-def verify_student_qr_record(database_path, enrollment, jti, now):
+def verify_student_qr_record(database_path, code, now):
     with database(database_path) as db:
         row = db.execute(
-            """SELECT 1 FROM student_qr_tokens
-               WHERE enrollment = ? AND jti = ? AND expires_at > ?""",
-            (enrollment, jti, now),
+            """SELECT enrollment, school_year FROM student_qr_tokens
+               WHERE code = ? AND expires_at > ?""",
+            (code, now),
         ).fetchone()
-    return row is not None
+    return dict(row) if row else None
+
+
+def student_qr_attempt_locked(database_path, user_id, now):
+    with database(database_path) as db:
+        row = db.execute(
+            "SELECT locked_until FROM student_qr_attempts WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+        if not row or row["locked_until"] <= now:
+            return False
+        return True
+
+
+def record_student_qr_failure(database_path, user_id, now, max_attempts=5, window=900):
+    with database(database_path) as db:
+        row = db.execute(
+            """SELECT failed_attempts, window_started
+               FROM student_qr_attempts WHERE user_id = ?""",
+            (user_id,),
+        ).fetchone()
+        attempts = row["failed_attempts"] if row and now - row["window_started"] < window else 0
+        window_started = row["window_started"] if attempts else now
+        attempts += 1
+        locked_until = now + window if attempts >= max_attempts else 0
+        db.execute(
+            """INSERT INTO student_qr_attempts
+                   (user_id, failed_attempts, window_started, locked_until)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(user_id) DO UPDATE SET
+                   failed_attempts = excluded.failed_attempts,
+                   window_started = excluded.window_started,
+                   locked_until = excluded.locked_until""",
+            (user_id, attempts, window_started, locked_until),
+        )
+    return locked_until > now
+
+
+def clear_student_qr_failures(database_path, user_id):
+    with database(database_path) as db:
+        db.execute("DELETE FROM student_qr_attempts WHERE user_id = ?", (user_id,))
 
 
 def add_user(database_path, email, password_hash, created_at, is_admin=False):
@@ -604,7 +676,7 @@ def record_signature(
     signed_at,
     return_by,
     school_year,
-    student_qr_jti=None,
+    student_qr_code=None,
 ):
     with database(database_path) as db:
         book = db.execute(
@@ -622,12 +694,12 @@ def record_signature(
             return "already_checked_out"
         if action == "checkout":
             now = int(time.time())
-            qr_token = db.execute(
+            qr_record = db.execute(
                 """SELECT 1 FROM student_qr_tokens
-                   WHERE enrollment = ? AND jti = ? AND expires_at > ?""",
-                (enrollment, student_qr_jti, now),
+                   WHERE enrollment = ? AND code = ? AND expires_at > ?""",
+                (enrollment, student_qr_code, now),
             ).fetchone()
-            if not qr_token:
+            if not qr_record:
                 return "student_qr_invalid"
         if action == "return" and book["return_signature"]:
             return "already_returned"

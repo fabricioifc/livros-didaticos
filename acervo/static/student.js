@@ -63,8 +63,7 @@ function displayQr(qr) {
   image.src = qr.qr_data;
   image.alt = "QR Code temporário de validação";
   target.append(image);
-  $("#student-qr-token").textContent = qr.token;
-  $(".student-token-fallback").open = false;
+  $("#student-qr-code").textContent = qr.code;
   let remaining = qr.lifetime_seconds;
   $("#student-qr-countdown").textContent = `Expira em ${remaining} segundos.`;
   window.clearInterval(studentState.countdown);
@@ -74,8 +73,7 @@ function displayQr(qr) {
       window.clearInterval(studentState.countdown);
       studentState.countdown = null;
       target.replaceChildren(document.createTextNode("Código expirado. Gere um novo quando precisar."));
-      $("#student-qr-token").textContent = "";
-      $(".student-token-fallback").open = false;
+      $("#student-qr-code").textContent = "------";
       $("#student-qr-countdown").textContent = "Este código expirou.";
       return;
     }
@@ -138,8 +136,7 @@ $("#generate-student-qr").addEventListener("click", async (event) => {
   window.clearInterval(studentState.countdown);
   studentState.countdown = null;
   $("#student-qr-display").textContent = "Gerando um novo código…";
-  $("#student-qr-token").textContent = "";
-  $(".student-token-fallback").open = false;
+  $("#student-qr-code").textContent = "------";
   $("#student-qr-countdown").textContent = "";
   const button = event.currentTarget;
   button.disabled = true;
@@ -153,17 +150,6 @@ $("#generate-student-qr").addEventListener("click", async (event) => {
     showError(error.message);
   } finally {
     button.disabled = false;
-  }
-});
-
-$("#copy-student-qr-token").addEventListener("click", async () => {
-  const token = $("#student-qr-token").textContent;
-  if (!token) return;
-  try {
-    await navigator.clipboard.writeText(token);
-    notify("Token copiado. Cole-o no leitor manual do servidor.");
-  } catch (error) {
-    showError(`Não foi possível copiar o token. Selecione e copie o texto exibido. ${error.message}`);
   }
 });
 

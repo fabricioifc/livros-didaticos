@@ -188,7 +188,6 @@ def create_student_qr():
         result = services.issue_student_qr(
             current_app.config["DATABASE_PATH"],
             g.student_enrollment,
-            current_app.config["SECRET_KEY"],
             current_app.config["SCHOOL_YEAR"],
         )
     except services.ServiceError as error:
@@ -343,10 +342,10 @@ def verify_student_qr():
     try:
         student = services.verify_student_qr(
             current_app.config["DATABASE_PATH"],
-            body.get("token"),
-            current_app.config["SECRET_KEY"],
+            body.get("code"),
             body.get("enrollment"),
             current_app.config["SCHOOL_YEAR"],
+            g.user_id,
         )
     except services.ServiceError as error:
         return handle_service_error(error)
@@ -457,8 +456,8 @@ def record_signature(enrollment, book_id, action):
             request_body().get("signature"),
             g.user_email,
             current_app.config["SCHOOL_YEAR"],
-            request_body().get("student_qr_token"),
-            current_app.config["SECRET_KEY"],
+            request_body().get("student_qr_code"),
+            g.user_id,
         )
     except services.ServiceError as error:
         return handle_service_error(error)

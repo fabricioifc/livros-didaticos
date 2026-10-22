@@ -8,7 +8,6 @@ import unicodedata
 from base64 import b64encode
 from io import BytesIO
 
-import jwt
 import qrcode
 from qrcode.image.svg import SvgPathImage
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -150,7 +149,7 @@ def change_student_password(database_path, enrollment, body):
         raise ServiceError("Não foi possível atualizar a senha.", 409)
 
 
-def issue_student_qr(database_path, enrollment, secret_key, school_year):
+def issue_student_qr(database_path, enrollment, school_year):
     credential = repository.find_student_credential(database_path, enrollment)
     if not credential:
         raise ServiceError("Acesso de estudante não encontrado.", 404)
@@ -161,64 +160,82 @@ def issue_student_qr(database_path, enrollment, secret_key, school_year):
         raise ServiceError("O estudante não possui um ciclo letivo ativo.", 409)
     now = int(time.time())
     expires_at = now + 90
-    jti = secrets.token_urlsafe(24)
-    token = jwt.encode(
-        {
-            "iss": "acervo-ifc",
-            "aud": "book-checkout",
-            "sub": enrollment,
-            "jti": jti,
-            "ver": credential["token_version"],
-            "school_year": school_year,
-            "iat": now,
-            "exp": expires_at,
-        },
-        secret_key,
-        algorithm="HS256",
-    )
-    repository.issue_student_qr(database_path, enrollment, jti, expires_at)
+    for _ in range(10):
+        code = f"{secrets.randbelow(1_000_000):06d}"
+        if repository.issue_student_qr(
+            database_path, enrollment, code, expires_at, school_year
+        ):
+            break
+    else:
+        raise ServiceError("Não foi possível gerar um código agora. Tente novamente.", 503)
     return {
-        "token": token,
-        "qr_data": create_qr_data(token),
+        "code": code,
+        "qr_data": create_qr_data(code),
         "expires_at": expires_at,
         "lifetime_seconds": 90,
     }
 
 
-def _validate_student_qr(database_path, token, secret_key, expected_enrollment, school_year):
-    if not isinstance(token, str) or len(token) > 4096:
-        raise ServiceError("QR Code inválido.", 400)
-    try:
-        claims = jwt.decode(
-            token,
-            secret_key,
-            algorithms=["HS256"],
-            audience="book-checkout",
-            issuer="acervo-ifc",
-            options={"require": ["exp", "iat", "iss", "aud", "sub", "jti", "ver"]},
+def _validate_student_qr(database_path, code, expected_enrollment, school_year, verifier_id):
+    now = int(time.time())
+    if repository.student_qr_attempt_locked(database_path, verifier_id, now):
+        raise ServiceError(
+            "Muitas tentativas de validação. Aguarde 15 minutos antes de tentar novamente.",
+            429,
         )
-    except jwt.InvalidTokenError as error:
-        raise ServiceError("QR Code expirado ou inválido. Gere um novo código.", 401) from error
-    if claims["sub"] != expected_enrollment or claims.get("school_year") != school_year:
-        raise ServiceError("O QR Code não corresponde a este estudante ou ano letivo.", 409)
-    credential = repository.find_student_credential(database_path, claims["sub"])
-    if not credential or claims["ver"] != credential["token_version"]:
-        raise ServiceError("QR Code invalidado. Gere um novo código.", 401)
-    if not repository.verify_student_qr_record(
-        database_path, claims["sub"], claims["jti"], int(time.time())
-    ):
-        raise ServiceError("QR Code já utilizado ou invalidado. Gere um novo código.", 409)
-    student = repository.find_student(database_path, claims["sub"], school_year)
+    if not isinstance(code, str) or not re.fullmatch(r"\d{6}", code.strip()):
+        locked = repository.record_student_qr_failure(database_path, verifier_id, now)
+        if locked:
+            raise ServiceError(
+                "Muitas tentativas de validação. Aguarde 15 minutos antes de tentar novamente.",
+                429,
+            )
+        raise ServiceError("Informe o código numérico de 6 dígitos exibido no QR Code.", 400)
+    qr_record = repository.verify_student_qr_record(database_path, code.strip(), now)
+    if not qr_record:
+        locked = repository.record_student_qr_failure(database_path, verifier_id, now)
+        if locked:
+            raise ServiceError(
+                "Muitas tentativas de validação. Aguarde 15 minutos antes de tentar novamente.",
+                429,
+            )
+        raise ServiceError(
+            "Código inválido ou expirado. Peça ao estudante para gerar um novo QR Code.",
+            401,
+        )
+    if qr_record["enrollment"] != expected_enrollment:
+        locked = repository.record_student_qr_failure(database_path, verifier_id, now)
+        if locked:
+            raise ServiceError(
+                "Muitas tentativas de validação. Aguarde 15 minutos antes de tentar novamente.",
+                429,
+            )
+        raise ServiceError(
+            "Este QR Code pertence a outro estudante. Confira a matrícula selecionada.",
+            409,
+        )
+    if qr_record["school_year"] != school_year:
+        locked = repository.record_student_qr_failure(database_path, verifier_id, now)
+        if locked:
+            raise ServiceError(
+                "Muitas tentativas de validação. Aguarde 15 minutos antes de tentar novamente.",
+                429,
+            )
+        raise ServiceError(
+            "Este QR Code pertence a outro ano letivo. Peça ao estudante para gerar um novo.",
+            409,
+        )
+    repository.clear_student_qr_failures(database_path, verifier_id)
+    student = repository.find_student(database_path, expected_enrollment, school_year)
     if not student or student["status"] != "active":
         raise ServiceError("O estudante não possui um ciclo letivo ativo.", 409)
-    return claims, {"enrollment": claims["sub"], "name": student["name"]}
+    return {"enrollment": expected_enrollment, "name": student["name"]}
 
 
-def verify_student_qr(database_path, token, secret_key, expected_enrollment, school_year):
-    _, student = _validate_student_qr(
-        database_path, token, secret_key, expected_enrollment, school_year
+def verify_student_qr(database_path, code, expected_enrollment, school_year, verifier_id):
+    return _validate_student_qr(
+        database_path, code, expected_enrollment, school_year, verifier_id
     )
-    return student
 
 
 def get_students(database_path, query, school_year):
@@ -352,8 +369,8 @@ def sign_book(
     signature,
     server_email,
     school_year,
-    student_qr_token=None,
-    secret_key=None,
+    student_qr_code=None,
+    verifier_id=None,
 ):
     if action not in {"checkout", "return"}:
         raise ServiceError("Operação inválida.", 400)
@@ -366,16 +383,16 @@ def sign_book(
         raise ServiceError("Estudante não encontrado.", 404)
     if not validate_signature(signature):
         raise ServiceError("A assinatura está inválida ou vazia.", 400)
-    qr_jti = None
+    qr_code = None
     if action == "checkout":
-        claims, _ = _validate_student_qr(
+        _validate_student_qr(
             database_path,
-            student_qr_token,
-            secret_key,
+            student_qr_code,
             enrollment,
             school_year,
+            verifier_id,
         )
-        qr_jti = claims["jti"]
+        qr_code = student_qr_code.strip()
     result = repository.record_signature(
         database_path,
         enrollment,
@@ -385,7 +402,7 @@ def sign_book(
         now_iso(),
         server_email,
         school_year,
-        qr_jti,
+        qr_code,
     )
     errors = {
         "book_not_found": ("Livro não encontrado para este estudante.", 404),

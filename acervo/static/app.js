@@ -12,7 +12,7 @@ const state = {
   editingStudent: null,
   signatureBook: null,
   signatureAction: "checkout",
-  studentQrToken: null,
+  studentQrCode: null,
   schoolYear: null,
   drawing: false,
   hasSignature: false,
@@ -331,15 +331,15 @@ function renderStudentDetail() {
   }).join("");
 }
 
-function openSignature(bookId, action, verifiedQrToken = null) {
-  if (action === "checkout" && !verifiedQrToken) {
+function openSignature(bookId, action, verifiedQrCode = null) {
+  if (action === "checkout" && !verifiedQrCode) {
     openQrScanner(bookId);
     return;
   }
   const book = state.currentStudent.books.find((item) => item.id === bookId);
   state.signatureBook = book;
   state.signatureAction = action;
-  state.studentQrToken = verifiedQrToken;
+  state.studentQrCode = verifiedQrCode;
   state.hasSignature = false;
   $("#signature-eyebrow").textContent = action === "checkout" ? "ASSINATURA DO ESTUDANTE" : "ASSINATURA DO SERVIDOR";
   $("#signature-title").textContent = action === "checkout" ? "Assine para confirmar" : "Assine a devolução";
@@ -359,26 +359,29 @@ function stopQrCamera() {
     qrScanner.destroy();
     qrScanner = null;
   }
-  $("#qr-camera").srcObject = null;
+  const video = $("#qr-camera");
+  video.srcObject = null;
+  video.hidden = true;
 }
 
 async function openQrScanner(bookId) {
   stopQrCamera();
   state.signatureBook = state.currentStudent.books.find((item) => item.id === bookId);
-  state.studentQrToken = null;
+  state.studentQrCode = null;
   $("#qr-scan-status").textContent =
     `Escaneie o QR Code temporário de ${state.currentStudent.name}.`;
-  $("#qr-manual-token").value = "";
+  $("#qr-manual-code").value = "";
+  $("#qr-scan-status").classList.remove("qr-scan-status--error");
   $("#qr-camera").hidden = true;
   elements.qrScanDialog.showModal();
   if (typeof QrScanner === "undefined") {
     $("#qr-scan-status").textContent =
-      "Não foi possível carregar o leitor de QR Code. Tente colar o token abaixo.";
+      "Não foi possível carregar o leitor de QR Code. Digite o código de 6 dígitos abaixo.";
     return;
   }
   if (!navigator.mediaDevices?.getUserMedia) {
     $("#qr-scan-status").textContent =
-      "A câmera não está disponível neste navegador ou endereço. Verifique se está usando HTTPS ou cole o token abaixo.";
+      "A câmera não está disponível neste navegador ou endereço. Verifique se está usando HTTPS ou digite o código abaixo.";
     return;
   }
 
@@ -388,9 +391,10 @@ async function openQrScanner(bookId) {
     video,
     (result) => {
       if (qrScanner !== scanner || !elements.qrScanDialog.open) return;
-      const token = result.data;
+      const code = result.data;
       stopQrCamera();
-      validateStudentQr(token);
+      $("#qr-camera").hidden = true;
+      validateStudentQr(code);
     },
     {
       preferredCamera: "environment",
@@ -406,30 +410,35 @@ async function openQrScanner(bookId) {
     if (qrScanner === scanner) {
       stopQrCamera();
       $("#qr-scan-status").textContent =
-        "Não foi possível iniciar a câmera. Verifique a permissão do navegador ou cole o token abaixo.";
+        "Não foi possível iniciar a câmera. Verifique a permissão ou digite o código de 6 dígitos abaixo.";
       notify(error.message, "error");
     }
   }
 }
 
-async function validateStudentQr(token) {
+async function validateStudentQr(code) {
   try {
     const result = await api("/api/student-qr/verify", {
       method: "POST",
       body: JSON.stringify({
-        token: token.trim(),
+        code: code.trim(),
         enrollment: state.currentStudent.enrollment,
       }),
     });
-    state.studentQrToken = token.trim();
+    state.studentQrCode = code.trim();
     stopQrCamera();
+    $("#qr-camera").hidden = true;
     elements.qrScanDialog.close();
     notify(`Estudante validado: ${result.name}.`);
-    openSignature(state.signatureBook.id, "checkout", state.studentQrToken);
+    openSignature(state.signatureBook.id, "checkout", state.studentQrCode);
   } catch (error) {
     $("#qr-scan-status").textContent = error.message;
+    $("#qr-scan-status").classList.add("qr-scan-status--error");
     stopQrCamera();
-    notify(error.message, "error");
+    $("#qr-camera").hidden = true;
+    const manualCode = $("#qr-manual-code");
+    manualCode.value = /^\d{6}$/.test(code.trim()) ? code.trim() : "";
+    manualCode.focus();
   }
 }
 
@@ -668,10 +677,10 @@ document.addEventListener("click", (event) => {
 elements.qrScanDialog.addEventListener("close", stopQrCamera);
 $("#qr-manual-form").addEventListener("submit", async (event) => {
   event.preventDefault();
-  await validateStudentQr($("#qr-manual-token").value);
+  await validateStudentQr($("#qr-manual-code").value);
 });
 elements.signatureDialog.addEventListener("close", () => {
-  state.studentQrToken = null;
+  state.studentQrCode = null;
 });
 
 $$("[data-close]").forEach((button) => button.addEventListener("click", () => $(`#${button.dataset.close}`).close()));
@@ -755,7 +764,7 @@ $("#signature-form").addEventListener("submit", async (event) => {
       method: "PUT",
       body: JSON.stringify({
         signature: elements.canvas.toDataURL("image/png"),
-        student_qr_token: state.studentQrToken,
+        student_qr_code: state.studentQrCode,
       }),
     });
     elements.signatureDialog.close();
