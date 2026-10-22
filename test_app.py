@@ -19,6 +19,7 @@ class LibraryAppTest(unittest.TestCase):
                 "SECRET_KEY": "test-only-secret-key-for-tests-32bytes",
                 "DATABASE_PATH": str(database_path),
                 "SCHOOL_YEAR": 2026,
+                "PUBLIC_BASE_URL": "https://acervo.ifc.edu.br",
             }
         )
         create_user(str(database_path), "servidor@ifc.edu.br", "senha-segura-de-teste")
@@ -68,7 +69,13 @@ class LibraryAppTest(unittest.TestCase):
                 headers={"X-CSRF-Token": admin_csrf},
             )
             self.assertEqual(reset.status_code, 200)
-            temporary_password = reset.get_json()["temporary_password"]
+            reset_result = reset.get_json()
+            temporary_password = reset_result["temporary_password"]
+            self.assertRegex(temporary_password, r"^\d{4}$")
+            self.assertEqual(
+                reset_result["portal_url"], "https://acervo.ifc.edu.br/aluno"
+            )
+            self.assertTrue(reset_result["portal_qr_data"].startswith("data:image/svg+xml;base64,"))
             password = "senha-estudante-segura-123"
             self.student_passwords[enrollment] = password
         else:
@@ -109,7 +116,7 @@ class LibraryAppTest(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 400)
 
-    def test_student_qr_is_required_student_bound_and_single_use(self):
+    def test_student_qr_is_required_student_bound_and_reusable_until_expiration(self):
         self.login()
         created = self.client.post(
             "/api/students",
@@ -147,12 +154,18 @@ class LibraryAppTest(unittest.TestCase):
             headers={"X-CSRF-Token": self.csrf()},
         )
         self.assertEqual(checked_out.status_code, 200)
-        replay = self.client.put(
+        second_checkout = self.client.put(
             "/api/students/2026001/books/matematica-2026-1/checkout",
             json={"signature": signature, "student_qr_token": qr_token},
             headers={"X-CSRF-Token": self.csrf()},
         )
-        self.assertEqual(replay.status_code, 409)
+        self.assertEqual(second_checkout.status_code, 200)
+        qr_still_valid = self.client.post(
+            "/api/student-qr/verify",
+            json={"token": qr_token, "enrollment": "2026001"},
+            headers={"X-CSRF-Token": self.csrf()},
+        )
+        self.assertEqual(qr_still_valid.status_code, 200)
 
         old_token = self.student_qr_token("2026001")
         admin = self.app.test_client()
@@ -183,6 +196,58 @@ class LibraryAppTest(unittest.TestCase):
         response = self.client.get("/aluno")
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"student-login-form", response.data)
+
+    def test_four_digit_temporary_code_is_rate_limited(self):
+        self.login()
+        created = self.client.post(
+            "/api/students",
+            json={"name": "Ana Silva", "enrollment": "2026001", "grade": "1º"},
+            headers={"X-CSRF-Token": self.csrf()},
+        )
+        self.assertEqual(created.status_code, 201)
+
+        database_path = self.app.config["DATABASE_PATH"]
+        if not repository.find_user(database_path, "fabricio.bizotto@ifc.edu.br"):
+            create_user(
+                database_path,
+                "fabricio.bizotto@ifc.edu.br",
+                "senha-admin-segura",
+            )
+        admin = self.app.test_client()
+        admin_csrf = admin.get("/api/auth/session").get_json()["csrf_token"]
+        admin_login = admin.post(
+            "/api/auth/login",
+            json={
+                "email": "fabricio.bizotto@ifc.edu.br",
+                "password": "senha-admin-segura",
+            },
+            headers={"X-CSRF-Token": admin_csrf},
+        )
+        access = admin.post(
+            "/api/students/2026001/student-access",
+            json={},
+            headers={"X-CSRF-Token": admin_login.get_json()["csrf_token"]},
+        )
+        self.assertEqual(access.status_code, 200)
+        temporary_code = access.get_json()["temporary_password"]
+        self.assertRegex(temporary_code, r"^\d{4}$")
+
+        student = self.app.test_client()
+        for _ in range(5):
+            csrf = student.get("/api/student-auth/session").get_json()["csrf_token"]
+            failed = student.post(
+                "/api/student-auth/login",
+                json={"enrollment": "2026001", "password": "not-the-code"},
+                headers={"X-CSRF-Token": csrf},
+            )
+            self.assertEqual(failed.status_code, 401)
+        csrf = student.get("/api/student-auth/session").get_json()["csrf_token"]
+        locked = student.post(
+            "/api/student-auth/login",
+            json={"enrollment": "2026001", "password": temporary_code},
+            headers={"X-CSRF-Token": csrf},
+        )
+        self.assertEqual(locked.status_code, 429)
 
     def test_designated_admin_can_manage_accounts_and_regular_users_cannot(self):
         database_path = self.app.config["DATABASE_PATH"]

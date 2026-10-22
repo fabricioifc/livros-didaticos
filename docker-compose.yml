@@ -20,6 +20,7 @@ services:
       PORT: "8000"
       COOKIE_SECURE: ${COOKIE_SECURE:-true}
       SCHOOL_YEAR: ${SCHOOL_YEAR:-}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
     depends_on:
       database-init:
         condition: service_completed_successfully

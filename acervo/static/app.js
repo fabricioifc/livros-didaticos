@@ -679,7 +679,7 @@ $("#export-term-button").addEventListener("click", () => buildPrintTerm(state.cu
 $("#export-annual-backup-button").addEventListener("click", exportAnnualBackup);
 $("#detail-year-select").addEventListener("change", (event) => selectStudentYear(Number(event.target.value)));
 $("#reset-student-access-button").addEventListener("click", async () => {
-  if (!state.currentStudent || !window.confirm(`Gerar ou redefinir o acesso QR de ${state.currentStudent.name}?`)) return;
+  if (!state.currentStudent) return;
   const button = $("#reset-student-access-button");
   button.disabled = true;
   try {
@@ -688,6 +688,9 @@ $("#reset-student-access-button").addEventListener("click", async () => {
       { method: "POST", body: JSON.stringify({}) },
     );
     $("#student-temp-password").textContent = result.temporary_password;
+    $("#student-portal-qr").src = result.portal_qr_data;
+    $("#student-portal-url").href = result.portal_url;
+    $("#student-portal-url").textContent = result.portal_url;
     $("#student-access-dialog").showModal();
   } catch (error) {
     notify(error.message, "error");

@@ -44,13 +44,14 @@ def initialize_db(database_path, school_year):
                 enrollment TEXT PRIMARY KEY REFERENCES students(enrollment) ON DELETE CASCADE,
                 password_hash TEXT NOT NULL,
                 must_change_password INTEGER NOT NULL DEFAULT 1 CHECK (must_change_password IN (0, 1)),
-                token_version INTEGER NOT NULL DEFAULT 1
+                token_version INTEGER NOT NULL DEFAULT 1,
+                failed_attempts INTEGER NOT NULL DEFAULT 0,
+                locked_until INTEGER NOT NULL DEFAULT 0
             );
             CREATE TABLE IF NOT EXISTS student_qr_tokens (
                 jti TEXT PRIMARY KEY,
                 enrollment TEXT NOT NULL REFERENCES students(enrollment) ON DELETE CASCADE,
-                expires_at INTEGER NOT NULL,
-                used_at INTEGER
+                expires_at INTEGER NOT NULL
             );
             CREATE TABLE IF NOT EXISTS book_signatures (
                 enrollment TEXT NOT NULL REFERENCES students(enrollment) ON DELETE CASCADE,
@@ -93,6 +94,18 @@ def initialize_db(database_path, school_year):
         if "is_active" not in user_columns:
             db.execute(
                 "ALTER TABLE users ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1"
+            )
+        credential_columns = {
+            row["name"]
+            for row in db.execute("PRAGMA table_info(student_credentials)").fetchall()
+        }
+        if "failed_attempts" not in credential_columns:
+            db.execute(
+                "ALTER TABLE student_credentials ADD COLUMN failed_attempts INTEGER NOT NULL DEFAULT 0"
+            )
+        if "locked_until" not in credential_columns:
+            db.execute(
+                "ALTER TABLE student_credentials ADD COLUMN locked_until INTEGER NOT NULL DEFAULT 0"
             )
         db.execute(
             "UPDATE users SET is_admin = 1 WHERE lower(email) = ?",
@@ -288,13 +301,40 @@ def find_student_credential(database_path, enrollment):
     with database(database_path) as db:
         row = db.execute(
             """SELECT c.enrollment, c.password_hash, c.must_change_password,
-                      c.token_version, s.name
+                      c.token_version, c.failed_attempts, c.locked_until, s.name
                FROM student_credentials c
                JOIN students s ON s.enrollment = c.enrollment
                WHERE c.enrollment = ?""",
             (enrollment,),
         ).fetchone()
     return dict(row) if row else None
+
+
+def record_student_login_failure(database_path, enrollment, now, max_attempts=5, lock_seconds=900):
+    with database(database_path) as db:
+        db.execute(
+            """UPDATE student_credentials
+               SET failed_attempts = CASE
+                       WHEN failed_attempts + 1 >= ? THEN 0
+                       ELSE failed_attempts + 1
+                   END,
+                   locked_until = CASE
+                       WHEN failed_attempts + 1 >= ? THEN ?
+                       ELSE locked_until
+                   END
+               WHERE enrollment = ?""",
+            (max_attempts, max_attempts, now + lock_seconds, enrollment),
+        )
+
+
+def clear_student_login_failures(database_path, enrollment):
+    with database(database_path) as db:
+        db.execute(
+            """UPDATE student_credentials
+               SET failed_attempts = 0, locked_until = 0
+               WHERE enrollment = ?""",
+            (enrollment,),
+        )
 
 
 def reset_student_credential(database_path, enrollment, password_hash):
@@ -310,7 +350,9 @@ def reset_student_credential(database_path, enrollment, password_hash):
                ON CONFLICT(enrollment) DO UPDATE SET
                    password_hash = excluded.password_hash,
                    must_change_password = 1,
-                   token_version = student_credentials.token_version + 1""",
+                   token_version = student_credentials.token_version + 1,
+                   failed_attempts = 0,
+                   locked_until = 0""",
             (enrollment, password_hash),
         )
         db.execute("DELETE FROM student_qr_tokens WHERE enrollment = ?", (enrollment,))
@@ -349,7 +391,7 @@ def verify_student_qr_record(database_path, enrollment, jti, now):
     with database(database_path) as db:
         row = db.execute(
             """SELECT 1 FROM student_qr_tokens
-               WHERE enrollment = ? AND jti = ? AND expires_at > ? AND used_at IS NULL""",
+               WHERE enrollment = ? AND jti = ? AND expires_at > ?""",
             (enrollment, jti, now),
         ).fetchone()
     return row is not None
@@ -580,13 +622,12 @@ def record_signature(
             return "already_checked_out"
         if action == "checkout":
             now = int(time.time())
-            consumed = db.execute(
-                """UPDATE student_qr_tokens SET used_at = ?
-                   WHERE enrollment = ? AND jti = ? AND expires_at > ?
-                     AND used_at IS NULL""",
-                (now, enrollment, student_qr_jti, now),
-            )
-            if consumed.rowcount != 1:
+            qr_token = db.execute(
+                """SELECT 1 FROM student_qr_tokens
+                   WHERE enrollment = ? AND jti = ? AND expires_at > ?""",
+                (enrollment, student_qr_jti, now),
+            ).fetchone()
+            if not qr_token:
                 return "student_qr_invalid"
         if action == "return" and book["return_signature"]:
             return "already_returned"

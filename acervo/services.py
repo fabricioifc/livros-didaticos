@@ -5,6 +5,7 @@ import secrets
 import sqlite3
 import time
 import unicodedata
+from base64 import b64encode
 from io import BytesIO
 
 import jwt
@@ -20,6 +21,16 @@ class ServiceError(Exception):
     def __init__(self, message, status):
         super().__init__(message)
         self.status = status
+
+
+def create_qr_data(value):
+    qr = qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_M, box_size=8, border=3)
+    qr.add_data(value)
+    qr.make(fit=True)
+    image = qr.make_image(image_factory=SvgPathImage)
+    output = BytesIO()
+    image.save(output)
+    return "data:image/svg+xml;base64," + b64encode(output.getvalue()).decode("ascii")
 
 
 def create_user(database_path, email, password, is_admin=False):
@@ -89,7 +100,7 @@ def update_managed_user(database_path, target_id, body, current_user_id):
 
 
 def reset_student_access(database_path, enrollment):
-    temporary_password = secrets.token_urlsafe(15)
+    temporary_password = f"{secrets.randbelow(10_000):04d}"
     changed = repository.reset_student_credential(
         database_path,
         enrollment,
@@ -103,9 +114,16 @@ def reset_student_access(database_path, enrollment):
 def authenticate_student(database_path, enrollment, password):
     if not isinstance(enrollment, str) or not isinstance(password, str):
         raise ServiceError("Informe matrícula e senha.", 400)
-    credential = repository.find_student_credential(database_path, enrollment.strip())
+    enrollment = enrollment.strip()
+    credential = repository.find_student_credential(database_path, enrollment)
+    now = int(time.time())
+    if credential and credential["locked_until"] > now:
+        raise ServiceError("Acesso temporariamente bloqueado após várias tentativas. Aguarde 15 minutos.", 429)
     if not credential or not check_password_hash(credential["password_hash"], password):
+        if credential:
+            repository.record_student_login_failure(database_path, enrollment, now)
         raise ServiceError("Matrícula ou senha incorretas.", 401)
+    repository.clear_student_login_failures(database_path, enrollment)
     return {
         "enrollment": credential["enrollment"],
         "name": credential["name"],
@@ -159,17 +177,9 @@ def issue_student_qr(database_path, enrollment, secret_key, school_year):
         algorithm="HS256",
     )
     repository.issue_student_qr(database_path, enrollment, jti, expires_at)
-    qr = qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_M, box_size=8, border=3)
-    qr.add_data(token)
-    qr.make(fit=True)
-    image = qr.make_image(image_factory=SvgPathImage)
-    output = BytesIO()
-    image.save(output)
-    from base64 import b64encode
-
     return {
         "token": token,
-        "qr_data": "data:image/svg+xml;base64," + b64encode(output.getvalue()).decode("ascii"),
+        "qr_data": create_qr_data(token),
         "expires_at": expires_at,
         "lifetime_seconds": 90,
     }
@@ -383,7 +393,7 @@ def sign_book(
         "already_checked_out": ("A assinatura de entrega deste título já foi registrada.", 409),
         "already_returned": ("A devolução deste título já foi registrada.", 409),
         "wrong_school_year": ("A entrega deste título pertence a outro ano letivo.", 409),
-        "student_qr_invalid": ("QR Code do estudante inválido, expirado ou já utilizado.", 409),
+        "student_qr_invalid": ("QR Code do estudante inválido, expirado ou invalidado.", 409),
     }
     if result:
         message, status = errors[result]

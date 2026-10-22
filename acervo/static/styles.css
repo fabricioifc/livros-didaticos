@@ -211,6 +211,9 @@ th:first-child, td:first-child { padding-left: 2px; }
 .qr-manual-form textarea { min-height: 70px; padding: 9px; font: 10px/1.4 monospace; resize: vertical; }
 .qr-manual-form .button { justify-self: start; }
 .student-temp-password { margin: 20px 27px; padding: 16px; border-radius: 7px; background: #f2f6f2; color: var(--green); font: 600 18px/1.4 monospace; overflow-wrap: anywhere; text-align: center; user-select: all; }
+.student-access-instructions { margin: 0 26px 12px; }
+.student-portal-qr { display: block; width: 180px; height: 180px; margin: 0 auto 8px; }
+.student-portal-url { display: block; margin: 0 25px 18px; color: var(--green); font-size: 11px; overflow-wrap: anywhere; text-align: center; }
 .student-portal { min-height: 100vh; background: #f6f7f5; }
 .student-portal-main { width: min(100% - 32px, 560px); margin: 0 auto; }
 .student-portal-header { display: flex; align-items: center; justify-content: space-between; padding: 26px 0; }

@@ -318,7 +318,19 @@ def reset_student_access(enrollment):
         )
     except services.ServiceError as error:
         return handle_service_error(error)
-    return jsonify({"temporary_password": password, "portal_url": "/aluno"})
+    public_base_url = current_app.config["PUBLIC_BASE_URL"]
+    if public_base_url:
+        portal_url = f"{public_base_url}/aluno"
+    else:
+        scheme = request.headers.get("X-Forwarded-Proto", request.scheme).split(",")[0].strip()
+        portal_url = f"{scheme}://{request.host}/aluno"
+    return jsonify(
+        {
+            "temporary_password": password,
+            "portal_url": portal_url,
+            "portal_qr_data": services.create_qr_data(portal_url),
+        }
+    )
 
 
 @main.post("/api/student-qr/verify")

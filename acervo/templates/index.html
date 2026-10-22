@@ -168,9 +168,12 @@
   </dialog>
 
   <dialog id="student-access-dialog" class="dialog dialog--form">
-    <div class="dialog-heading"><div><span class="eyebrow">ACESSO DO ESTUDANTE</span><h2>Senha temporária</h2><p>Entregue-a ao estudante após conferir sua identidade. Ela será exibida somente agora.</p></div><button class="dialog-close" type="button" data-close="student-access-dialog" aria-label="Fechar">×</button></div>
+    <div class="dialog-heading"><div><span class="eyebrow">ACESSO DO ESTUDANTE</span><h2>Código temporário</h2><p>Entregue-o ao estudante após conferir sua identidade. Ele será exibido somente agora.</p></div><button class="dialog-close" type="button" data-close="student-access-dialog" aria-label="Fechar">×</button></div>
     <p class="student-temp-password" id="student-temp-password"></p>
-    <p class="signature-consent">Acesse <a href="/aluno" target="_blank" rel="noopener">/aluno</a>, entre com matrícula e senha temporária e crie uma senha pessoal. O reset invalida os QR Codes ainda não utilizados.</p>
+    <p class="signature-consent student-access-instructions">Peça ao estudante para escanear este QR Code com a câmera do celular para abrir a tela de acesso:</p>
+    <img class="student-portal-qr" id="student-portal-qr" alt="QR Code para abrir o portal do estudante">
+    <a class="student-portal-url" id="student-portal-url" target="_blank" rel="noopener"></a>
+    <p class="signature-consent student-access-instructions">Na tela aberta, o estudante entra com a matrícula e o código temporário e cria uma senha pessoal. A redefinição invalida sessões e QR Codes ainda não utilizados.</p>
     <div class="dialog-actions"><button class="button button--secondary" type="button" data-close="student-access-dialog">Fechar</button></div>
   </dialog>
 
