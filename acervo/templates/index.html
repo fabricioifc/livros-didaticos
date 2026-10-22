@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f6f7f5">
+  <title>Acervo IFC — Livros didáticos</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  <script src="{{ url_for('static', filename='app.js') }}" defer></script>
+</head>
+<body>
+  <div id="toast-region" class="toast-region" aria-live="polite"></div>
+  <main id="auth-screen" class="auth-screen">
+    <section class="auth-brand">
+      <div class="brand-mark"><span class="brand-mark__block">ifc</span><span>fraiburgo</span></div>
+      <div class="auth-brand__copy">
+        <span class="eyebrow">INSTITUTO FEDERAL CATARINENSE · CAMPUS FRAIBURGO</span>
+        <h1>Mais cuidado<br>com cada <em>livro.</em></h1>
+        <p>Gestão simples e segura dos livros didáticos do Ensino Médio Integrado.</p>
+      </div>
+      <div class="auth-brand__foot">Acervo IFC <span>·</span> Controle de empréstimos <span>·</span> Ensino Médio Integrado</div>
+      <div class="auth-orbit auth-orbit--one"></div>
+      <div class="auth-orbit auth-orbit--two"></div>
+    </section>
+    <section class="auth-panel">
+      <div class="auth-card">
+        <div class="auth-mobile-brand brand-mark"><span class="brand-mark__block">ifc</span><span>fraiburgo</span></div>
+        <span class="eyebrow">ÁREA DO SERVIDOR</span>
+        <h2 id="auth-title">Boas-vindas</h2>
+        <p class="auth-intro" id="auth-intro">Entre com seu e-mail institucional para continuar.</p>
+        <form id="auth-form">
+          <label class="field-label" for="email">E-mail institucional</label>
+          <div class="input-wrap"><span class="input-icon">@</span><input id="email" name="email" type="email" placeholder="nome@ifc.edu.br" autocomplete="username" required></div>
+          <label class="field-label" for="password">Senha</label>
+          <div class="input-wrap"><span class="input-icon input-icon--lock"></span><input id="password" name="password" type="password" placeholder="Sua senha" autocomplete="current-password" required></div>
+          <button class="button button--primary button--wide" type="submit" id="auth-submit">Entrar na plataforma <span aria-hidden="true">→</span></button>
+        </form>
+        <div class="auth-divider"><span>ou</span></div>
+        <button class="button button--google button--wide" type="button" disabled aria-label="Autenticação Google disponível em breve">
+          <span class="google-g">G</span> Continuar com Google <span class="soon-label">EM BREVE</span>
+        </button>
+        <p class="auth-switch">Primeiro acesso? Solicite uma conta ao administrador do sistema.</p>
+        <p class="auth-note"><span class="secure-dot"></span> Acesso exclusivo para servidores do IFC</p>
+      </div>
+    </section>
+  </main>
+
+  <div id="application" class="application" hidden>
+    <aside class="sidebar" id="sidebar">
+      <a class="brand-mark brand-mark--sidebar" href="#" aria-label="Acervo IFC início"><span class="brand-mark__block">ifc</span><span>fraiburgo</span></a>
+      <div class="sidebar-campus"><span class="campus-dot"></span> CAMPUS FRAIBURGO</div>
+      <div class="nav-section-label">GESTÃO</div>
+      <nav class="main-nav" aria-label="Navegação principal">
+        <button class="nav-item is-active" data-view="dashboard"><span class="nav-icon nav-icon--grid"></span> Visão geral</button>
+        <button class="nav-item" data-view="students"><span class="nav-icon nav-icon--users"></span> Estudantes <span class="nav-count" id="nav-student-count">0</span></button>
+      </nav>
+      <div class="sidebar-bottom">
+        <div class="help-card"><span class="help-spark">✳</span><strong>Precisa de ajuda?</strong><p>Consulte a equipe de apoio do campus.</p></div>
+        <div class="user-card">
+          <div class="avatar" id="user-avatar">IF</div>
+          <div class="user-card__identity"><strong id="user-email">servidor@ifc.edu.br</strong><span>Servidor</span></div>
+          <button class="icon-button logout-button" id="logout-button" aria-label="Sair da conta" title="Sair"><span class="logout-icon"></span></button>
+        </div>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <header class="topbar">
+        <button class="icon-button menu-button" id="menu-button" aria-label="Abrir menu"><span class="menu-icon"></span></button>
+        <div class="breadcrumb"><span>Acervo IFC</span><span class="breadcrumb-separator">/</span><strong id="breadcrumb-current">Visão geral</strong></div>
+        <div class="topbar-right"><span class="school-year"><span class="status-dot"></span> Ano letivo <span id="school-year-label"></span></span><div class="top-avatar" id="top-avatar">IF</div></div>
+      </header>
+
+      <section class="view view--dashboard" id="dashboard-view">
+        <div class="page-heading">
+          <div><span class="eyebrow"><span id="today-weekday"></span>, <span id="today-date"></span></span><h1>Visão geral</h1><p>Acompanhe a entrega e a devolução dos livros do campus.</p></div>
+          <button class="button button--primary" id="add-student-button"><span class="plus-icon">+</span> Novo estudante</button>
+        </div>
+        <div class="metrics-grid">
+          <article class="metric-card"><div class="metric-top"><span>Estudantes cadastrados</span><span class="metric-icon metric-icon--violet">♙</span></div><strong id="metric-students">0</strong><small>no acervo deste ano</small></article>
+          <article class="metric-card"><div class="metric-top"><span>Livros entregues</span><span class="metric-icon metric-icon--green">↗</span></div><strong><span id="metric-issued">0</span><small class="metric-total"> / <span id="metric-total">0</span></small></strong><small>assinaturas de empréstimo</small></article>
+          <article class="metric-card"><div class="metric-top"><span>Aguardando devolução</span><span class="metric-icon metric-icon--orange">↩</span></div><strong id="metric-awaiting">0</strong><small>livros em circulação</small></article>
+          <article class="metric-card"><div class="metric-top"><span>Termos completos</span><span class="metric-icon metric-icon--blue">✓</span></div><strong id="metric-complete">0</strong><small>empréstimo e devolução</small></article>
+        </div>
+        <div class="content-card recent-card">
+          <div class="card-heading"><div><h2>Estudantes</h2><p>Consulte os termos e acompanhe cada título.</p></div><button class="text-button" data-go="students">Ver todos <span>→</span></button></div>
+          <div class="table-toolbar"><label class="search-box"><span class="search-icon"></span><input id="dashboard-search" type="search" placeholder="Buscar por nome ou matrícula"></label><div class="grade-filter" id="dashboard-grade-filter"><button class="filter-chip is-selected" data-grade="all">Todas as turmas</button><button class="filter-chip" data-grade="1º">1º ano</button><button class="filter-chip" data-grade="2º">2º ano</button><button class="filter-chip" data-grade="3º">3º ano</button></div></div>
+          <div class="table-scroll"><table><thead><tr><th>ESTUDANTE</th><th>MATRÍCULA</th><th>TURMA</th><th>ENTREGA DOS LIVROS</th><th>DEVOLUÇÃO</th><th></th></tr></thead><tbody id="dashboard-students"></tbody></table></div>
+          <div class="empty-state" id="dashboard-empty" hidden><div class="empty-illustration">✳</div><strong>Nenhum estudante por aqui</strong><span>Cadastre um estudante para começar a registrar as entregas.</span><button class="button button--secondary" data-action="add-student">Cadastrar estudante</button></div>
+          <div class="table-footer"><span id="dashboard-count">0 estudantes</span><span>Atualizado em tempo real</span></div>
+        </div>
+        <footer class="app-footer"><span>Acervo IFC · Campus Fraiburgo</span><span>Termo de compromisso · <span class="school-year-footer"></span></span></footer>
+      </section>
+
+      <section class="view view--students" id="students-view" hidden>
+        <div class="page-heading page-heading--students"><div><span class="eyebrow">CADASTRO E ACOMPANHAMENTO</span><h1>Estudantes</h1><p>Gerencie os termos de entrega e devolução dos livros.</p></div><div class="page-heading__actions"><a class="button button--secondary" id="download-students-template" href="/api/students/import-template"><span class="download-icon">↓</span> Baixar modelo CSV</a><button class="button button--secondary" id="import-students-button" type="button"><span class="import-icon">↑</span> Importar CSV</button><button class="button button--primary" id="add-student-button-list"><span class="plus-icon">+</span> Novo estudante</button><input id="students-csv-input" type="file" accept=".csv,text/csv" hidden></div></div>
+        <div class="content-card all-students-card">
+          <div class="table-toolbar table-toolbar--students"><label class="search-box"><span class="search-icon"></span><input id="students-search" type="search" placeholder="Buscar por nome ou matrícula"></label><div class="grade-filter" id="students-grade-filter"><button class="filter-chip is-selected" data-grade="all">Todas as turmas</button><button class="filter-chip" data-grade="1º">1º ano</button><button class="filter-chip" data-grade="2º">2º ano</button><button class="filter-chip" data-grade="3º">3º ano</button></div></div>
+          <div class="table-scroll"><table><thead><tr><th>ESTUDANTE</th><th>MATRÍCULA</th><th>TURMA</th><th>ENTREGA DOS LIVROS</th><th>DEVOLUÇÃO</th><th></th></tr></thead><tbody id="students-table"></tbody></table></div>
+          <div class="empty-state" id="students-empty" hidden><div class="empty-illustration">✳</div><strong>Nenhum resultado encontrado</strong><span>Experimente outro nome, matrícula ou turma.</span></div>
+          <div class="table-footer"><span id="students-count">0 estudantes</span><span>Atualizado em tempo real</span></div>
+        </div>
+        <footer class="app-footer"><span>Acervo IFC · Campus Fraiburgo</span><span>Termo de compromisso · <span class="school-year-footer"></span></span></footer>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="student-dialog" class="dialog dialog--form">
+    <form id="student-form" method="dialog">
+      <div class="dialog-heading"><div><span class="eyebrow">CADASTRO</span><h2 id="student-dialog-title">Adicionar estudante</h2><p>Os dados identificam o termo de compromisso do aluno.</p></div><button class="dialog-close" type="button" data-close="student-dialog" aria-label="Fechar">×</button></div>
+      <label class="field-label" for="student-name">Nome completo</label><input class="text-input" id="student-name" name="name" maxlength="150" placeholder="Nome do estudante" required>
+      <div class="form-row"><div><label class="field-label" for="student-enrollment">Matrícula</label><input class="text-input" id="student-enrollment" name="enrollment" maxlength="30" placeholder="Ex.: 202612345" required></div><div><label class="field-label" for="student-grade">Turma</label><select class="text-input" id="student-grade" name="grade" required><option value="" disabled selected>Selecione</option><option value="1º">1º ano</option><option value="2º">2º ano</option><option value="3º">3º ano</option></select></div></div>
+      <div class="dialog-actions"><button class="button button--secondary" type="button" data-close="student-dialog">Cancelar</button><button class="button button--primary" id="student-submit" type="submit">Salvar estudante <span>→</span></button></div>
+    </form>
+  </dialog>
+
+  <dialog id="student-detail-dialog" class="dialog dialog--detail">
+    <div class="dialog-heading detail-heading"><div><span class="eyebrow">TERMO DE COMPROMISSO · <span id="detail-school-year"></span></span><h2 id="detail-name"></h2><p id="detail-meta"></p><label class="field-label" for="detail-year-select">Ciclo letivo</label><select class="text-input detail-year-select" id="detail-year-select" aria-label="Selecionar ciclo letivo"></select></div><div class="detail-header-actions"><button class="text-button" id="edit-student-button" type="button">Editar cadastro</button><button class="dialog-close" type="button" data-close="student-detail-dialog" aria-label="Fechar">×</button></div></div>
+    <div class="detail-progress"><div><span id="detail-progress-label">0 de 15 títulos entregues</span><button class="text-button" id="export-term-button">Exportar PDF <span>↗</span></button></div><div class="progress-track"><span id="detail-progress-bar"></span></div></div>
+    <div class="book-list" id="book-list"></div>
+    <div class="detail-footer"><span><i class="legend-dot legend-dot--issued"></i>Entregue <i class="legend-dot legend-dot--returned"></i>Devolvido</span><button class="button button--secondary" type="button" data-close="student-detail-dialog">Concluir</button></div>
+  </dialog>
+
+  <dialog id="signature-dialog" class="dialog dialog--signature">
+    <form id="signature-form" method="dialog">
+      <div class="dialog-heading"><div><span class="eyebrow" id="signature-eyebrow">ASSINATURA DO ESTUDANTE</span><h2 id="signature-title">Assine para confirmar</h2><p id="signature-book"></p></div><button class="dialog-close" type="button" data-close="signature-dialog" aria-label="Fechar">×</button></div>
+      <div class="signature-pad-wrap"><canvas id="signature-canvas" aria-label="Área para desenhar a assinatura"></canvas><span class="signature-placeholder" id="signature-placeholder">Assine aqui com o dedo ou a caneta</span></div>
+      <div class="signature-controls"><span>Assinatura manuscrita na tela</span><button class="text-button" type="button" id="clear-signature">Limpar</button></div>
+      <p class="signature-consent" id="signature-consent">Ao assinar, o estudante confirma o recebimento deste título e se compromete com as regras de utilização do termo.</p>
+      <div class="dialog-actions"><button class="button button--secondary" type="button" data-close="signature-dialog">Cancelar</button><button class="button button--primary" type="submit">Confirmar assinatura <span>→</span></button></div>
+    </form>
+  </dialog>
+
+  <div id="print-container" class="print-container" aria-hidden="true"></div>
+</body>
+</html>

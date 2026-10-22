@@ -1,0 +1,34 @@
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      SECRET_KEY: local-dev-only-change-me
+      DATABASE_PATH: /data/livros.db
+      PORT: "5000"
+      COOKIE_SECURE: "false"
+      FLASK_DEBUG: "1"
+      SCHOOL_YEAR: ${SCHOOL_YEAR:-}
+    command:
+      - python
+      - -m
+      - flask
+      - --app
+      - acervo:create_app()
+      - run
+      - --host=0.0.0.0
+      - --port=5000
+      - --debug
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./server.py:/app/server.py
+      - ./acervo:/app/acervo
+      - type: bind
+        source: ./livros.db
+        target: /data/livros.db
+        bind:
+          create_host_path: false
+    init: true

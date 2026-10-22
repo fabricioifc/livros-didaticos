@@ -1,0 +1,366 @@
+import base64
+from io import BytesIO
+import sqlite3
+import tempfile
+import unittest
+from pathlib import Path
+
+from acervo import create_app
+from acervo.services import create_user
+
+
+class LibraryAppTest(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        database_path = Path(self.temp_dir.name) / "test.db"
+        self.app = create_app(
+            {
+                "TESTING": True,
+                "SECRET_KEY": "test-only-secret",
+                "DATABASE_PATH": str(database_path),
+                "SCHOOL_YEAR": 2026,
+            }
+        )
+        create_user(str(database_path), "servidor@ifc.edu.br", "senha-segura-de-teste")
+        self.client = self.app.test_client()
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def csrf(self):
+        response = self.client.get("/api/auth/session")
+        return response.get_json()["csrf_token"]
+
+    def login(self):
+        token = self.csrf()
+        return self.client.post(
+            "/api/auth/login",
+            json={"email": "servidor@ifc.edu.br", "password": "senha-segura-de-teste"},
+            headers={"X-CSRF-Token": token},
+        )
+
+    def test_login_requires_ifc_email(self):
+        token = self.csrf()
+        response = self.client.post(
+            "/api/auth/login",
+            json={"email": "outside@example.com", "password": "senha-segura-de-teste"},
+            headers={"X-CSRF-Token": token},
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_student_books_are_grade_specific_and_unique(self):
+        self.login()
+        token = self.csrf()
+        response = self.client.post(
+            "/api/students",
+            json={"name": "Ana Silva", "enrollment": "2026001", "grade": "2º"},
+            headers={"X-CSRF-Token": token},
+        )
+        self.assertEqual(response.status_code, 201)
+        books = response.get_json()["books"]
+        self.assertEqual(len(books), 15)
+        self.assertEqual(books[0]["title"], "360° Língua Portuguesa — 2º ano")
+        self.assertEqual(books[-1]["title"], "Do seu jeito — Matemática — Volume 2")
+        duplicate = self.client.post(
+            "/api/students",
+            json={"name": "Outra aluna", "enrollment": "2026001", "grade": "1º"},
+            headers={"X-CSRF-Token": self.csrf()},
+        )
+        self.assertEqual(duplicate.status_code, 409)
+
+    def test_csv_import_ignores_existing_and_duplicate_enrollments(self):
+        self.login()
+        headers = {"X-CSRF-Token": self.csrf()}
+        self.client.post(
+            "/api/students",
+            json={"name": "Ana cadastrada", "enrollment": "2026001", "grade": "1º"},
+            headers=headers,
+        )
+        csv_content = (
+            "\ufeffMatrícula;Nome;Turma\n"
+            "2026001;Ana atualizada;3º\n"
+            "2026002;João da Silva;2º ano\n"
+            "2026002;Duplicada no arquivo;1°\n"
+            ";Sem matrícula;3\n"
+            "2026004;Turma inválida;4\n"
+        ).encode("utf-8")
+
+        response = self.client.post(
+            "/api/students/import",
+            data={"file": (BytesIO(csv_content), "estudantes.csv")},
+            headers={"X-CSRF-Token": self.csrf()},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.get_json(),
+            {
+                "imported": 1,
+                "ignored": 2,
+                "invalid": 2,
+                "errors": [
+                    {"line": 5, "reason": "matrícula inválida"},
+                    {"line": 6, "reason": "turma deve ser 1º, 2º ou 3º"},
+                ],
+            },
+        )
+        original_student = self.client.get("/api/students/2026001").get_json()
+        self.assertEqual(original_student["name"], "Ana cadastrada")
+        imported_student = self.client.get("/api/students/2026002").get_json()
+        self.assertEqual(imported_student["name"], "João da Silva")
+        self.assertEqual(imported_student["grade"], "2º")
+        self.assertEqual(len(imported_student["books"]), 15)
+
+        repeated = self.client.post(
+            "/api/students/import",
+            data={"file": (BytesIO(csv_content), "estudantes.csv")},
+            headers={"X-CSRF-Token": self.csrf()},
+        )
+        self.assertEqual(repeated.status_code, 200)
+        self.assertEqual(repeated.get_json()["imported"], 0)
+        self.assertEqual(repeated.get_json()["ignored"], 3)
+
+    def test_csv_import_requires_auth_and_valid_headers(self):
+        unauthorized = self.client.post(
+            "/api/students/import",
+            data={"file": (BytesIO(b"name;enrollment\nAna;2026001"), "students.csv")},
+        )
+        self.assertEqual(unauthorized.status_code, 401)
+
+        self.login()
+        invalid = self.client.post(
+            "/api/students/import",
+            data={"file": (BytesIO(b"name;enrollment\nAna;2026001"), "students.csv")},
+            headers={"X-CSRF-Token": self.csrf()},
+        )
+        self.assertEqual(invalid.status_code, 400)
+        self.assertIn("cabeçalhos", invalid.get_json()["error"])
+
+    def test_download_csv_template_requires_auth_and_has_import_headers(self):
+        unauthorized = self.client.get("/api/students/import-template")
+        self.assertEqual(unauthorized.status_code, 401)
+
+        self.login()
+        response = self.client.get("/api/students/import-template")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("text/csv", response.content_type)
+        self.assertIn("modelo-estudantes.csv", response.headers["Content-Disposition"])
+        self.assertTrue(response.data.startswith(b"\xef\xbb\xbfmatricula;nome;turma\r\n"))
+
+        imported = self.client.post(
+            "/api/students/import",
+            data={"file": (BytesIO(response.data), "modelo-estudantes.csv")},
+            headers={"X-CSRF-Token": self.csrf()},
+        )
+        self.assertEqual(imported.status_code, 200)
+        self.assertEqual(imported.get_json()["imported"], 0)
+
+    def test_checkout_return_and_pdf_data_are_persisted(self):
+        self.login()
+        token = self.csrf()
+        self.client.post(
+            "/api/students",
+            json={"name": "Ana Silva", "enrollment": "2026001", "grade": "1º"},
+            headers={"X-CSRF-Token": token},
+        )
+        signature = "data:image/png;base64," + base64.b64encode(
+            b"\x89PNG\r\n\x1a\nvalid-test-image"
+        ).decode()
+        returned_early = self.client.put(
+            "/api/students/2026001/books/portugues-2026-1/return",
+            json={"signature": signature},
+            headers={"X-CSRF-Token": self.csrf()},
+        )
+        self.assertEqual(returned_early.status_code, 409)
+        checkout = self.client.put(
+            "/api/students/2026001/books/portugues-2026-1/checkout",
+            json={"signature": signature},
+            headers={"X-CSRF-Token": self.csrf()},
+        )
+        self.assertEqual(checkout.status_code, 200)
+        self.assertTrue(checkout.get_json()["books"][0]["checkout_signature"])
+        returned = self.client.put(
+            "/api/students/2026001/books/portugues-2026-1/return",
+            json={"signature": signature},
+            headers={"X-CSRF-Token": self.csrf()},
+        )
+        self.assertEqual(returned.status_code, 200)
+        self.assertEqual(returned.get_json()["books"][0]["return_by"], "servidor@ifc.edu.br")
+        previous_grade_math = self.client.put(
+            "/api/students/2026001/books/matematica-2026-1/checkout",
+            json={"signature": signature},
+            headers={"X-CSRF-Token": self.csrf()},
+        )
+        self.assertEqual(previous_grade_math.status_code, 200)
+        updated = self.client.put(
+            "/api/students/2026001",
+            json={"name": "Ana Silva", "grade": "2º"},
+            headers={"X-CSRF-Token": self.csrf()},
+        )
+        self.assertEqual(updated.status_code, 200)
+        books = updated.get_json()["books"]
+        self.assertEqual(len(books), 17)
+        titles = {book["title"] for book in books}
+        self.assertIn("360° Língua Portuguesa — 1º ano", titles)
+        self.assertIn("360° Língua Portuguesa — 2º ano", titles)
+        self.assertIn("Do seu jeito — Matemática — Volume 1", titles)
+        self.assertIn("Do seu jeito — Matemática — Volume 2", titles)
+        portuguese_one = next(book for book in books if book["id"] == "portugues-2026-1")
+        self.assertEqual(portuguese_one["return_by"], "servidor@ifc.edu.br")
+
+    def test_school_years_promote_students_and_carry_open_shared_books(self):
+        self.login()
+        token = self.csrf()
+        self.client.post(
+            "/api/students",
+            json={"name": "Ana Silva", "enrollment": "2026001", "grade": "1º"},
+            headers={"X-CSRF-Token": token},
+        )
+        signature = "data:image/png;base64," + base64.b64encode(
+            b"\x89PNG\r\n\x1a\nvalid-test-image"
+        ).decode()
+        self.client.put(
+            "/api/students/2026001/books/historia/checkout",
+            json={"signature": signature},
+            headers={"X-CSRF-Token": self.csrf()},
+        )
+        database_path = self.app.config["DATABASE_PATH"]
+
+        self.app = create_app(
+            {
+                "TESTING": True,
+                "SECRET_KEY": "test-only-secret",
+                "DATABASE_PATH": database_path,
+                "SCHOOL_YEAR": 2027,
+            }
+        )
+        student_2027 = self.client.get("/api/students/2026001?year=2027").get_json()
+        self.assertEqual(student_2027["grade"], "2º")
+        carried = next(book for book in student_2027["books"] if book["id"] == "historia")
+        self.assertTrue(carried["carried_forward"])
+        self.assertEqual(carried["issue_year"], 2026)
+        self.assertNotIn("portugues-2026-1", {book["id"] for book in student_2027["books"]})
+        self.assertIn("portugues-2027-2", {book["id"] for book in student_2027["books"]})
+
+        returned = self.client.put(
+            "/api/students/2026001/books/historia/return",
+            json={"signature": signature},
+            headers={"X-CSRF-Token": self.csrf()},
+        )
+        self.assertEqual(returned.status_code, 200)
+        self.assertTrue(
+            next(book for book in returned.get_json()["books"] if book["id"] == "historia")[
+                "return_signature"
+            ]
+        )
+
+        for year, expected_grade in ((2028, "3º"),):
+            self.app = create_app(
+                {
+                    "TESTING": True,
+                    "SECRET_KEY": "test-only-secret",
+                    "DATABASE_PATH": database_path,
+                    "SCHOOL_YEAR": year,
+                }
+            )
+            term = self.client.get(f"/api/students/2026001?year={year}").get_json()
+            self.assertEqual(term["grade"], expected_grade)
+            self.assertEqual(term["status"], "active")
+
+        self.app = create_app(
+            {
+                "TESTING": True,
+                "SECRET_KEY": "test-only-secret",
+                "DATABASE_PATH": database_path,
+                "SCHOOL_YEAR": 2030,
+            }
+        )
+        finalized = self.client.get("/api/students/2026001?year=2028").get_json()
+        self.assertEqual(finalized["status"], "completed")
+        self.assertEqual(self.client.get("/api/students/2026001?year=2029").status_code, 404)
+        archived_term = self.client.get("/api/students/2026001").get_json()
+        self.assertEqual(archived_term["school_year"], 2028)
+        db = sqlite3.connect(database_path)
+        try:
+            years = db.execute(
+                "SELECT school_year FROM student_years WHERE enrollment = ? ORDER BY school_year",
+                ("2026001",),
+            ).fetchall()
+        finally:
+            db.close()
+        self.assertEqual([year[0] for year in years], [2026, 2027, 2028])
+
+    def test_legacy_database_migrates_annual_books_and_preserves_signatures(self):
+        database_path = Path(self.temp_dir.name) / "legacy.db"
+        db = sqlite3.connect(database_path)
+        try:
+            db.executescript(
+                """
+                CREATE TABLE students (
+                    enrollment TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    grade TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                CREATE TABLE book_signatures (
+                    enrollment TEXT NOT NULL,
+                    book_id TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    issue_year INTEGER NOT NULL,
+                    checkout_signature TEXT,
+                    checkout_at TEXT,
+                    return_signature TEXT,
+                    return_at TEXT,
+                    return_by TEXT,
+                    PRIMARY KEY (enrollment, book_id)
+                );
+                INSERT INTO students VALUES ('2026002', 'Bruno Lima', '2º', '2026-01-01');
+                INSERT INTO book_signatures
+                    VALUES ('2026002', 'portugues-1', 'Português 1', 2026, 'assinatura-preservada',
+                            '2026-02-01', NULL, NULL, NULL);
+                INSERT INTO book_signatures
+                    VALUES ('2026002', 'historia', 'História por toda parte', 2026,
+                            'emprestimo-preservado', '2026-02-01', NULL, NULL, NULL);
+                """
+            )
+        finally:
+            db.close()
+        migrated_app = create_app(
+            {
+                "TESTING": True,
+                "DATABASE_PATH": str(database_path),
+                "SCHOOL_YEAR": 2027,
+            }
+        )
+        from acervo.repository import find_student
+
+        prior_term = find_student(str(database_path), "2026002", 2026)
+        self.assertEqual(prior_term["grade"], "1º")
+        migrated_portuguese = next(
+            book for book in prior_term["books"] if book["id"] == "portugues-2026-1"
+        )
+        self.assertEqual(migrated_portuguese["checkout_signature"], "assinatura-preservada")
+        current_term = find_student(str(database_path), "2026002", 2027)
+        self.assertEqual(current_term["grade"], "2º")
+        carried_history = next(book for book in current_term["books"] if book["id"] == "historia")
+        self.assertTrue(carried_history["carried_forward"])
+        self.assertEqual(migrated_app.config["SCHOOL_YEAR"], 2027)
+
+    def test_api_requires_authentication(self):
+        response = self.client.get("/api/students")
+        self.assertEqual(response.status_code, 401)
+
+    def test_mvc_view_and_static_assets_are_served_by_flask(self):
+        page = self.client.get("/")
+        self.assertEqual(page.status_code, 200)
+        self.assertIn(b"Importar CSV", page.data)
+        self.assertIn(b"/static/styles.css", page.data)
+        self.assertIn(b"/static/app.js", page.data)
+        with self.client.get("/static/styles.css") as styles:
+            self.assertEqual(styles.status_code, 200)
+        with self.client.get("/static/app.js") as script:
+            self.assertEqual(script.status_code, 200)
+
+
+if __name__ == "__main__":
+    unittest.main()

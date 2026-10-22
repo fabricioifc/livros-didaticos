@@ -1,0 +1,525 @@
+'use strict';
+
+const state = {
+  csrf: "",
+  email: "",
+  students: [],
+  view: "dashboard",
+  grade: "all",
+  currentStudent: null,
+  editingStudent: null,
+  signatureBook: null,
+  signatureAction: "checkout",
+  schoolYear: null,
+  drawing: false,
+  hasSignature: false,
+};
+
+const $ = (selector, scope = document) => scope.querySelector(selector);
+const $$ = (selector, scope = document) => [...scope.querySelectorAll(selector)];
+const elements = {
+  authScreen: $("#auth-screen"),
+  application: $("#application"),
+  authForm: $("#auth-form"),
+  authTitle: $("#auth-title"),
+  authIntro: $("#auth-intro"),
+  authSubmit: $("#auth-submit"),
+  password: $("#password"),
+  studentDialog: $("#student-dialog"),
+  studentForm: $("#student-form"),
+  detailDialog: $("#student-detail-dialog"),
+  signatureDialog: $("#signature-dialog"),
+  canvas: $("#signature-canvas"),
+  toastRegion: $("#toast-region"),
+};
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, (char) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  })[char]);
+}
+
+function formatDate(value, options = { day: "2-digit", month: "2-digit", year: "numeric" }) {
+  if (!value) return "—";
+  return new Intl.DateTimeFormat("pt-BR", options).format(new Date(value));
+}
+
+function bookCounts(student) {
+  const books = student.books || [];
+  const issued = books.filter((book) => book.checkout_signature).length;
+  const returned = books.filter((book) => book.return_signature).length;
+  return { total: books.length, issued, returned, awaiting: issued - returned };
+}
+
+async function api(path, options = {}) {
+  const isFormData = options.body instanceof FormData;
+  const headers = { ...(options.body && !isFormData ? { "Content-Type": "application/json" } : {}), ...options.headers };
+  if (options.method && options.method !== "GET") headers["X-CSRF-Token"] = state.csrf;
+  const response = await fetch(path, { ...options, headers });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    if (response.status === 401 && path !== "/api/auth/login") showAuth();
+    throw new Error(payload.error || "Não foi possível concluir a operação.");
+  }
+  if (payload.csrf_token) state.csrf = payload.csrf_token;
+  return payload;
+}
+
+function notify(message, type = "success") {
+  const toast = document.createElement("div");
+  toast.className = `toast toast--${type}`;
+  toast.textContent = message;
+  elements.toastRegion.append(toast);
+  window.setTimeout(() => toast.remove(), 3800);
+}
+
+function prepareLogin() {
+  elements.authTitle.textContent = "Boas-vindas";
+  elements.authIntro.textContent = "Entre com seu e-mail institucional para continuar.";
+  elements.authSubmit.innerHTML = "Entrar na plataforma <span aria-hidden=\"true\">→</span>";
+  elements.password.autocomplete = "current-password";
+  elements.password.required = true;
+}
+
+function showAuth() {
+  elements.application.hidden = true;
+  elements.authScreen.hidden = false;
+  prepareLogin();
+}
+
+function showApplication(email) {
+  state.email = email;
+  elements.authScreen.hidden = true;
+  elements.application.hidden = false;
+  $("#user-email").textContent = email;
+  const initials = email.split("@")[0].split(/[._-]/).slice(0, 2).map((part) => part[0]?.toUpperCase() || "").join("");
+  $("#user-avatar").textContent = initials;
+  $("#top-avatar").textContent = initials;
+  const today = new Date();
+  $("#today-weekday").textContent = new Intl.DateTimeFormat("pt-BR", { weekday: "long" }).format(today).toUpperCase();
+  $("#today-date").textContent = new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "long" }).format(today).toUpperCase();
+  refreshStudents();
+}
+
+async function refreshStudents() {
+  const data = await api("/api/students");
+  state.schoolYear = data.school_year;
+  $("#school-year-label").textContent = String(data.school_year);
+  $$(".school-year-footer").forEach((element) => {
+    element.textContent = String(data.school_year);
+  });
+  const details = await Promise.all(data.students.map(async (student) => {
+    const record = await api(`/api/students/${encodeURIComponent(student.enrollment)}`);
+    return { ...student, ...record };
+  }));
+  state.students = details;
+  renderStudents();
+}
+
+function getProgress(student) {
+  const counts = bookCounts(student);
+  const checkout = counts.issued === counts.total;
+  return {
+    label: counts.issued === 0 ? "Não iniciado" : checkout ? "Completa" : `${counts.issued} de ${counts.total}`,
+    returnLabel: counts.returned === 0 ? "—" : counts.returned === counts.total ? "Completa" : `${counts.returned} de ${counts.total}`,
+    complete: counts.returned === counts.total,
+    awaiting: counts.awaiting,
+  };
+}
+
+function rowMarkup(student) {
+  const progress = getProgress(student);
+  const initials = student.name.trim().split(/\s+/).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("");
+  const checkoutClass = progress.label === "Completa" ? "status-pill status-pill--complete" : progress.label === "Não iniciado" ? "status-pill status-pill--muted" : "status-pill status-pill--progress";
+  const returnClass = progress.returnLabel === "Completa" ? "status-pill status-pill--complete" : progress.returnLabel === "—" ? "status-pill status-pill--muted" : "status-pill status-pill--progress";
+  return `<tr>
+    <td><button class="student-name-button" data-action="detail" data-enrollment="${escapeHtml(student.enrollment)}"><span class="student-avatar">${escapeHtml(initials)}</span><span class="student-name">${escapeHtml(student.name)}</span></button></td>
+    <td class="mono-cell">${escapeHtml(student.enrollment)}</td>
+    <td><span class="grade-pill">${escapeHtml(student.grade)} ano</span></td>
+    <td><span class="${checkoutClass}"><i></i>${escapeHtml(progress.label)}</span></td>
+    <td><span class="${returnClass}"><i></i>${escapeHtml(progress.returnLabel)}</span></td>
+    <td><button class="row-action" data-action="detail" data-enrollment="${escapeHtml(student.enrollment)}" aria-label="Abrir termo de ${escapeHtml(student.name)}">→</button></td>
+  </tr>`;
+}
+
+function renderTable(table, empty, count, query = "") {
+  const filtered = state.students.filter((student) => {
+    const matchesGrade = state.grade === "all" || student.grade === state.grade;
+    const text = `${student.name} ${student.enrollment}`.toLowerCase();
+    return matchesGrade && text.includes(query.toLowerCase().trim());
+  });
+  table.innerHTML = filtered.map(rowMarkup).join("");
+  empty.hidden = filtered.length > 0;
+  table.closest(".table-scroll").hidden = filtered.length === 0;
+  count.textContent = `${filtered.length} ${filtered.length === 1 ? "estudante" : "estudantes"}`;
+  return filtered;
+}
+
+function renderStudents() {
+  const dashboard = renderTable($("#dashboard-students"), $("#dashboard-empty"), $("#dashboard-count"), $("#dashboard-search").value);
+  const list = renderTable($("#students-table"), $("#students-empty"), $("#students-count"), $("#students-search").value);
+  const issued = state.students.reduce((total, student) => total + bookCounts(student).issued, 0);
+  const awaiting = state.students.reduce((total, student) => total + bookCounts(student).awaiting, 0);
+  const returned = state.students.reduce((total, student) => total + bookCounts(student).returned, 0);
+  const total = state.students.reduce((sum, student) => sum + bookCounts(student).total, 0);
+  $("#metric-students").textContent = String(state.students.length);
+  $("#metric-issued").textContent = String(issued);
+  $("#metric-total").textContent = String(total);
+  $("#metric-awaiting").textContent = String(awaiting);
+  $("#metric-complete").textContent = String(total > 0 && returned === total ? state.students.length : state.students.filter((student) => bookCounts(student).returned === bookCounts(student).total && bookCounts(student).returned > 0).length);
+  $("#nav-student-count").textContent = String(state.students.length);
+  $("#dashboard-empty").hidden = dashboard.length > 0;
+  $("#students-empty").hidden = list.length > 0;
+}
+
+function setView(view) {
+  state.view = view;
+  $("#dashboard-view").hidden = view !== "dashboard";
+  $("#students-view").hidden = view !== "students";
+  $("#breadcrumb-current").textContent = view === "dashboard" ? "Visão geral" : "Estudantes";
+  $$(".nav-item").forEach((button) => button.classList.toggle("is-active", button.dataset.view === view));
+  $("#sidebar").classList.remove("is-open");
+}
+
+async function openStudent(enrollment) {
+  const student = state.students.find((item) => item.enrollment === enrollment);
+  if (!student) return;
+  try {
+    const record = await api(`/api/students/${encodeURIComponent(enrollment)}`);
+    state.currentStudent = { ...student, ...record };
+  } catch (error) {
+    notify(error.message, "error");
+    return;
+  }
+  renderStudentDetail();
+  elements.detailDialog.showModal();
+}
+
+async function selectStudentYear(year) {
+  if (!state.currentStudent) return;
+  const enrollment = state.currentStudent.enrollment;
+  try {
+    const record = await api(`/api/students/${encodeURIComponent(enrollment)}?year=${year}`);
+    state.currentStudent = { ...state.currentStudent, ...record };
+    renderStudentDetail();
+  } catch (error) {
+    notify(error.message, "error");
+  }
+}
+
+function openNewStudent() {
+  state.editingStudent = null;
+  elements.studentForm.reset();
+  $("#student-enrollment").readOnly = false;
+  $("#student-dialog-title").textContent = "Adicionar estudante";
+  $("#student-submit").innerHTML = "Salvar estudante <span>→</span>";
+  elements.studentDialog.showModal();
+}
+
+function editCurrentStudent() {
+  const student = state.currentStudent;
+  if (!student) return;
+  state.editingStudent = student;
+  $("#student-name").value = student.name;
+  $("#student-enrollment").value = student.enrollment;
+  $("#student-enrollment").readOnly = true;
+  $("#student-grade").value = student.grade;
+  $("#student-dialog-title").textContent = "Editar estudante";
+  $("#student-submit").innerHTML = "Salvar alterações <span>→</span>";
+  elements.studentDialog.showModal();
+}
+
+function renderStudentDetail() {
+  const student = state.currentStudent;
+  const counts = bookCounts(student);
+  $("#detail-school-year").textContent = String(student.school_year);
+  const yearSelect = $("#detail-year-select");
+  yearSelect.innerHTML = student.years.map((year) =>
+    `<option value="${year.school_year}">${year.school_year}${year.status === "completed" ? " · concluído" : ""}</option>`
+  ).join("");
+  yearSelect.value = String(student.school_year);
+  $("#edit-student-button").hidden = student.school_year !== state.schoolYear || student.status !== "active";
+  $("#detail-name").textContent = student.name;
+  $("#detail-meta").textContent = `Matrícula ${student.enrollment} · ${student.grade} ano`;
+  $("#detail-progress-label").textContent = `${counts.issued} de ${counts.total} títulos entregues`;
+  $("#detail-progress-bar").style.width = `${counts.total ? Math.round((counts.issued / counts.total) * 100) : 0}%`;
+  $("#book-list").innerHTML = student.books.map((book) => {
+    const returned = Boolean(book.return_signature);
+    const issued = Boolean(book.checkout_signature);
+    const status = returned ? `<span class="book-status book-status--returned"><i></i>Devolvido em ${formatDate(book.return_at)}</span>` : issued ? `<span class="book-status book-status--issued"><i></i>Entregue em ${formatDate(book.checkout_at)}</span>` : '<span class="book-status book-status--pending"><i></i>Aguardando assinatura</span>';
+    const checkoutSignature = book.checkout_signature ? `<img class="signature-thumb" src="${escapeHtml(book.checkout_signature)}" alt="Assinatura do estudante">` : "";
+    const returnSignature = book.return_signature ? `<img class="signature-thumb" src="${escapeHtml(book.return_signature)}" alt="Assinatura do servidor">` : "";
+    const button = returned
+      ? '<span class="book-done">Concluído <span>✓</span></span>'
+      : issued
+        ? `<button class="book-action book-action--return" data-action="sign-return" data-book="${escapeHtml(book.id)}"><span class="book-action-icon">↩</span> Registrar devolução</button>`
+        : student.school_year === state.schoolYear && student.status === "active"
+          ? `<button class="book-action" data-action="sign-checkout" data-book="${escapeHtml(book.id)}"><span class="book-action-icon">✎</span> Assinar entrega</button>`
+          : '<span class="book-done">Somente consulta</span>';
+    return `<article class="book-row">
+      <div class="book-info"><span class="book-index">${String(student.books.indexOf(book) + 1).padStart(2, "0")}</span><div><strong>${escapeHtml(book.title)}</strong>${status}</div></div>
+      <div class="book-signatures">      <span class="signature-cell">${checkoutSignature || '<span class="signature-placeholder-text">—</span>'}<small>Aluno</small></span><span class="signature-cell">${returnSignature || '<span class="signature-placeholder-text">—</span>'}<small>Servidor</small></span></div>
+      <div class="book-action-cell">${button}</div>
+    </article>`;
+  }).join("");
+}
+
+function openSignature(bookId, action) {
+  const book = state.currentStudent.books.find((item) => item.id === bookId);
+  state.signatureBook = book;
+  state.signatureAction = action;
+  state.hasSignature = false;
+  $("#signature-eyebrow").textContent = action === "checkout" ? "ASSINATURA DO ESTUDANTE" : "ASSINATURA DO SERVIDOR";
+  $("#signature-title").textContent = action === "checkout" ? "Assine para confirmar" : "Assine a devolução";
+  $("#signature-book").textContent = book.title;
+  $("#signature-consent").textContent = action === "checkout"
+    ? "Ao assinar, o estudante confirma o recebimento deste título e se compromete com as regras de utilização do termo."
+    : `Ao assinar, você confirma a devolução deste título por ${state.currentStudent.name}.`;
+  $("#signature-placeholder").textContent = action === "checkout" ? "Assine aqui com o dedo ou a caneta" : "Assinatura do servidor";
+  elements.signatureDialog.showModal();
+  window.requestAnimationFrame(resizeCanvas);
+}
+
+function resizeCanvas() {
+  const canvas = elements.canvas;
+  const box = canvas.getBoundingClientRect();
+  if (!box.width || !box.height) return;
+  const ratio = window.devicePixelRatio || 1;
+  const image = state.hasSignature ? canvas.toDataURL() : "";
+  canvas.width = Math.round(box.width * ratio);
+  canvas.height = Math.round(box.height * ratio);
+  const context = canvas.getContext("2d");
+  context.scale(ratio, ratio);
+  context.lineWidth = 2.5;
+  context.lineCap = "round";
+  context.lineJoin = "round";
+  context.strokeStyle = "#234b3a";
+  if (image) {
+    const saved = new Image();
+    saved.onload = () => context.drawImage(saved, 0, 0, box.width, box.height);
+    saved.src = image;
+  }
+}
+
+function canvasPoint(event) {
+  const bounds = elements.canvas.getBoundingClientRect();
+  return { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
+}
+
+function startDrawing(event) {
+  event.preventDefault();
+  elements.canvas.setPointerCapture(event.pointerId);
+  const point = canvasPoint(event);
+  const context = elements.canvas.getContext("2d");
+  context.beginPath();
+  context.moveTo(point.x, point.y);
+  context.lineTo(point.x + 0.1, point.y + 0.1);
+  context.stroke();
+  state.drawing = true;
+  state.hasSignature = true;
+  $("#signature-placeholder").hidden = true;
+}
+
+function draw(event) {
+  if (!state.drawing) return;
+  event.preventDefault();
+  const point = canvasPoint(event);
+  const context = elements.canvas.getContext("2d");
+  context.lineTo(point.x, point.y);
+  context.stroke();
+}
+
+function stopDrawing() {
+  state.drawing = false;
+}
+
+function clearCanvas() {
+  const canvas = elements.canvas;
+  canvas.getContext("2d").clearRect(0, 0, canvas.width, canvas.height);
+  state.hasSignature = false;
+  $("#signature-placeholder").hidden = false;
+}
+
+function buildPrintTerm(student) {
+  const date = formatDate(new Date().toISOString());
+  const rules = [
+    "Em caso de desistência do curso ou transferência para outra instituição, os livros deverão ser devolvidos para a liberação da transferência e/ou formalização da desistência.",
+    "Em caso de perda, roubo ou dano aos livros didáticos, não haverá reposição destes itens ao(à) estudante.",
+  ];
+  const rows = student.books.map((book) => `<tr>
+    <td>${escapeHtml(book.title)}</td>
+    <td>${book.checkout_signature ? `<img src="${escapeHtml(book.checkout_signature)}" alt="Assinatura do estudante"><small>${formatDate(book.checkout_at)}</small>` : '<span class="print-blank">Pendente</span>'}</td>
+    <td>${book.return_signature ? `<img src="${escapeHtml(book.return_signature)}" alt="Assinatura do servidor"><small>${formatDate(book.return_at)}</small>` : '<span class="print-blank">Pendente</span>'}</td>
+  </tr>`).join("");
+  $("#print-container").innerHTML = `<article class="print-term">
+    <header class="print-header"><div><strong>INSTITUTO FEDERAL CATARINENSE</strong><span>Campus Fraiburgo</span></div><span>TERMO DE COMPROMISSO · ${student.school_year}</span></header>
+    <h1>Termo de compromisso com os livros didáticos</h1>
+    <p>Eu, <strong>${escapeHtml(student.name)}</strong>, matrícula <strong>${escapeHtml(student.enrollment)}</strong>, estudante do <strong>${escapeHtml(student.grade)} ano</strong> do curso Técnico em Informática Integrado ao Ensino Médio, declaro que recebi os livros relacionados neste termo ao longo do curso e assumo a responsabilidade de devolvê-los em perfeito estado de conservação ao final do Ensino Médio, em caso de transferência para outra instituição ou de desistência do curso.</p>
+    <h2>Regras de utilização dos livros didáticos (PNLD)</h2><ol>${rules.map((rule) => `<li>${escapeHtml(rule)}</li>`).join("")}</ol>
+    <table class="print-table"><thead><tr><th>Título do volume</th><th>Assinatura do estudante<br>no empréstimo</th><th>Assinatura do servidor<br>na devolução</th></tr></thead><tbody>${rows}</tbody></table>
+    <footer class="print-footer"><span>Fraiburgo, ${date}</span><span>Rua Cruz e Souza, nº 100 · Centro · Fraiburgo/SC · (49) 3202-8800</span></footer>
+  </article>`;
+  window.setTimeout(() => window.print(), 100);
+}
+
+async function refreshCurrentStudent() {
+  await refreshStudents();
+  const enrollment = state.currentStudent.enrollment;
+  const year = state.currentStudent.school_year;
+  const record = await api(`/api/students/${encodeURIComponent(enrollment)}?year=${year}`);
+  state.currentStudent = { ...state.students.find((student) => student.enrollment === enrollment), ...record };
+  renderStudentDetail();
+}
+
+elements.authForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const email = $("#email").value.trim();
+  const password = elements.password.value;
+  elements.authSubmit.disabled = true;
+  try {
+    const result = await api("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
+    });
+    showApplication(result.email);
+  } catch (error) {
+    notify(error.message, "error");
+  } finally {
+    elements.authSubmit.disabled = false;
+  }
+});
+
+$("#add-student-button").addEventListener("click", openNewStudent);
+$("#add-student-button-list").addEventListener("click", openNewStudent);
+$("#import-students-button").addEventListener("click", () => $("#students-csv-input").click());
+$("#students-csv-input").addEventListener("change", async (event) => {
+  const file = event.target.files[0];
+  if (!file) return;
+  const button = $("#import-students-button");
+  button.disabled = true;
+  try {
+    const form = new FormData();
+    form.append("file", file);
+    const result = await api("/api/students/import", { method: "POST", body: form });
+    if (result.imported > 0) await refreshStudents();
+    const details = result.errors.slice(0, 3).map((item) => `linha ${item.line}: ${item.reason}`).join("; ");
+    const summary = `Importados: ${result.imported}. Ignorados (matrícula já cadastrada): ${result.ignored}. Linhas inválidas: ${result.invalid}.${details ? ` ${details}` : ""}`;
+    notify(summary, result.invalid > 0 ? "error" : "success");
+  } catch (error) {
+    notify(error.message, "error");
+  } finally {
+    button.disabled = false;
+    event.target.value = "";
+  }
+});
+elements.studentForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const button = $("#student-submit");
+  button.disabled = true;
+  try {
+    const form = new FormData(elements.studentForm);
+    const editing = state.editingStudent;
+    const enrollment = String(form.get("enrollment"));
+    await api(editing ? `/api/students/${encodeURIComponent(enrollment)}` : "/api/students", {
+      method: editing ? "PUT" : "POST",
+      body: JSON.stringify({ name: form.get("name"), enrollment: form.get("enrollment"), grade: form.get("grade") }),
+    });
+    elements.studentDialog.close();
+    elements.studentForm.reset();
+    state.editingStudent = null;
+    await refreshStudents();
+    if (editing) {
+      state.currentStudent = state.students.find((student) => student.enrollment === enrollment);
+      renderStudentDetail();
+    }
+    notify(editing ? "Cadastro atualizado com sucesso." : "Estudante cadastrado com sucesso.");
+  } catch (error) {
+    notify(error.message, "error");
+  } finally {
+    button.disabled = false;
+  }
+});
+
+elements.studentDialog.addEventListener("close", () => {
+  state.editingStudent = null;
+  $("#student-enrollment").readOnly = false;
+});
+
+$("#edit-student-button").addEventListener("click", editCurrentStudent);
+$("#logout-button").addEventListener("click", async () => {
+  try {
+    await api("/api/auth/logout", { method: "POST" });
+  } catch (error) {
+    notify(error.message, "error");
+  }
+  showAuth();
+});
+
+$$(".nav-item").forEach((button) => button.addEventListener("click", () => setView(button.dataset.view)));
+$$("[data-go]").forEach((button) => button.addEventListener("click", () => setView(button.dataset.go)));
+$("#menu-button").addEventListener("click", () => $("#sidebar").classList.toggle("is-open"));
+$("#dashboard-search").addEventListener("input", renderStudents);
+$("#students-search").addEventListener("input", renderStudents);
+$$(".grade-filter").forEach((filter) => filter.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-grade]");
+  if (!button) return;
+  state.grade = button.dataset.grade;
+  $$(".grade-filter").forEach((group) => $$(".filter-chip", group).forEach((chip) => chip.classList.toggle("is-selected", chip.dataset.grade === state.grade)));
+  renderStudents();
+}));
+
+document.addEventListener("click", (event) => {
+  const target = event.target.closest("[data-action]");
+  if (!target) return;
+  if (target.dataset.action === "detail") openStudent(target.dataset.enrollment);
+  if (target.dataset.action === "add-student") openNewStudent();
+  if (target.dataset.action === "sign-checkout") openSignature(target.dataset.book, "checkout");
+  if (target.dataset.action === "sign-return") openSignature(target.dataset.book, "return");
+});
+
+$$("[data-close]").forEach((button) => button.addEventListener("click", () => $(`#${button.dataset.close}`).close()));
+$("#export-term-button").addEventListener("click", () => buildPrintTerm(state.currentStudent));
+$("#detail-year-select").addEventListener("change", (event) => selectStudentYear(Number(event.target.value)));
+$("#clear-signature").addEventListener("click", clearCanvas);
+elements.canvas.addEventListener("pointerdown", startDrawing);
+elements.canvas.addEventListener("pointermove", draw);
+elements.canvas.addEventListener("pointerup", stopDrawing);
+elements.canvas.addEventListener("pointercancel", stopDrawing);
+window.addEventListener("resize", () => {
+  if (elements.signatureDialog.open) resizeCanvas();
+});
+
+$("#signature-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (!state.hasSignature) {
+    notify("Faça a assinatura no campo antes de confirmar.", "error");
+    return;
+  }
+  const button = $('button[type="submit"]', $("#signature-form"));
+  button.disabled = true;
+  try {
+    await api(`/api/students/${encodeURIComponent(state.currentStudent.enrollment)}/books/${encodeURIComponent(state.signatureBook.id)}/${state.signatureAction}`, {
+      method: "PUT",
+      body: JSON.stringify({ signature: elements.canvas.toDataURL("image/png") }),
+    });
+    elements.signatureDialog.close();
+    await refreshCurrentStudent();
+    notify(state.signatureAction === "checkout" ? "Assinatura de entrega registrada." : "Devolução registrada com sucesso.");
+  } catch (error) {
+    notify(error.message, "error");
+  } finally {
+    button.disabled = false;
+  }
+});
+
+async function initialize() {
+  prepareLogin();
+  try {
+    const session = await api("/api/auth/session");
+    if (session.authenticated) showApplication(session.email);
+  } catch (error) {
+    notify(error.message, "error");
+  }
+}
+
+initialize();

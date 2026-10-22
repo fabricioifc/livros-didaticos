@@ -1,0 +1,8 @@
+/.env
+/.env.*
+!/.env.example
+/livros.db
+/livros.db-shm
+/livros.db-wal
+/livros-backup*.db
+__pycache__/
