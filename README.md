@@ -43,10 +43,9 @@ São fornecidas configurações independentes para desenvolvimento e produção.
 
 ### Desenvolvimento
 
-O modo dev ativa a recarga automática do Flask, monta o código-fonte no container e espelha o arquivo `livros.db` do projeto diretamente em `/data/livros.db` dentro do container. O cookie HTTPS é desativado somente para uso local.
+O modo dev ativa a recarga automática do Flask, monta o código-fonte no container e espelha `data/livros.db` do host em `/data/livros.db` dentro do container. O arquivo e a pasta são criados automaticamente na primeira inicialização; um serviço inicializador prepara permissões para o usuário não-root da aplicação. O cookie HTTPS é desativado somente para uso local.
 
 ```powershell
-if (-not (Test-Path .\livros.db)) { New-Item -ItemType File -Path .\livros.db }
 docker compose -f docker-compose.dev.yml up --build
 ```
 
@@ -56,7 +55,7 @@ Acesse `http://localhost:5000`. Para criar a conta de servidor em outro terminal
 docker compose -f docker-compose.dev.yml run --rm web python server.py create-user
 ```
 
-Encerre com `Ctrl+C`; use `docker compose -f docker-compose.dev.yml down` para parar o serviço. Os dados ficam no arquivo `livros.db` do host e continuam disponíveis depois de remover ou recriar o container.
+Encerre com `Ctrl+C`; use `docker compose -f docker-compose.dev.yml down` para parar o serviço. Os dados ficam no arquivo `data\livros.db` do host e continuam disponíveis depois de remover ou recriar o container.
 
 ### Produção
 
@@ -68,13 +67,14 @@ Encerre com `Ctrl+C`; use `docker compose -f docker-compose.dev.yml down` para p
    ```
 
 2. Grave o valor gerado em `SECRET_KEY` no `.env`. O Compose exige uma chave não vazia. Mantenha `COOKIE_SECURE=true` quando a aplicação estiver publicada por HTTPS.
-3. Confirme que o arquivo `livros.db` existe no projeto. Se estiver configurando uma instalação nova sem banco existente, crie o arquivo vazio antes de iniciar:
+3. O banco é criado automaticamente em `data\livros.db` no primeiro início; não é necessário criar o arquivo manualmente. Se você já possui um banco antigo em `livros.db` na raiz do projeto, pare os containers e migre-o antes de iniciar a nova configuração:
 
    ```powershell
-   if (-not (Test-Path .\livros.db)) { New-Item -ItemType File -Path .\livros.db }
+   New-Item -ItemType Directory -Force -Path .\data
+   Move-Item .\livros.db .\data\livros.db
    ```
 
-   Se já usa `livros.db`, mantenha-o no lugar: o Compose vai montar o mesmo arquivo e a aplicação preservará seus registros.
+   Se preferir manter uma cópia original, use `Copy-Item` em vez de `Move-Item`; confirme que o arquivo em `data\livros.db` contém os dados esperados antes de subir os containers.
 4. Inicie a aplicação:
 
    ```powershell
@@ -87,21 +87,29 @@ Encerre com `Ctrl+C`; use `docker compose -f docker-compose.dev.yml down` para p
    docker compose run --rm web python server.py create-user
    ```
 
-O servidor Gunicorn escuta na porta 8000 do container; `HOST_PORT` define a porta do host (padrão `8000`). A porta do host é vinculada somente a `127.0.0.1`, para acesso por um proxy reverso HTTPS instalado no mesmo host, sem expor o servidor diretamente à rede. O arquivo `livros.db` na raiz do projeto é montado como bind mount em `/data/livros.db` no container. As alterações aparecem diretamente no arquivo do host, persistem mesmo após remover containers e não dependem de volumes Docker. O Compose exige que o arquivo exista antes da inicialização para evitar criar por engano uma pasta chamada `livros.db`.
+O Gunicorn escuta na porta 8000 somente na rede interna do Compose; a porta não é publicada no host. O Nginx encaminha as requisições para o serviço `web` e publica a porta local `127.0.0.1:8000` (configurável por `HOST_PORT`). O banco em `data\livros.db` é montado em `/data/livros.db` no container e espelhado no host. O Compose prepara automaticamente a pasta, o arquivo inicial e as permissões do banco.
 
-Os modos dev e production usam o mesmo arquivo `livros.db`; não execute os dois ao mesmo tempo nem use dados reais em desenvolvimento.
+### Cloudflare Tunnel com Nginx
+
+No painel do Cloudflare Zero Trust, configure a rota pública do túnel para o hostname desejado com serviço de origem `http://localhost:8000` (ou a porta definida em `HOST_PORT`). O TLS público termina no Cloudflare; o túnel conecta ao Nginx local por HTTP. Não configure o túnel para apontar diretamente à porta interna do Gunicorn. Se seu túnel já usava `localhost:8000`, essa origem continua igual: a porta agora pertence ao Nginx, não ao Gunicorn.
+
+Essa instrução presume que `cloudflared` está instalado no host que executa o Docker Compose. Se o `cloudflared` estiver em outro container, `localhost` apontará para esse container: conecte-o à mesma rede Docker e use `http://nginx:80` como origem, ou direcione-o ao endereço do host e à porta `HOST_PORT`. Mantenha a porta do Nginx vinculada a `127.0.0.1` quando o túnel estiver no host, para que não fique acessível diretamente pela rede.
+
+O arquivo `nginx/default.conf` configura o proxy e encaminha o host original, IPs e protocolo recebidos. O limite do corpo de requisição de 2 MB permite as assinaturas, respeitando o limite da aplicação. O Compose espera o Gunicorn ficar saudável antes de iniciar o Nginx.
+
+Os modos dev e production usam o mesmo arquivo `data\livros.db`; não execute os dois ao mesmo tempo nem use dados reais em desenvolvimento.
 
 Faça backups regulares. Para produzir uma cópia consistente, pare o serviço, copie o arquivo no host e inicie-o novamente:
 
 ```powershell
-docker compose stop web
-Copy-Item .\livros.db .\livros-backup.db
+docker compose stop nginx web
+Copy-Item .\data\livros.db .\livros-backup.db
 docker compose up -d
 ```
 
 Proteja os arquivos de backup e não os inclua no controle de versão. `.gitignore` exclui o banco, seus arquivos auxiliares SQLite e o `.env`.
 
-Para atualizar a imagem após mudanças, execute `docker compose up --build -d`. Para parar sem remover dados: `docker compose down`. O arquivo `livros.db` permanece no host independentemente do ciclo de vida dos containers.
+Para atualizar as imagens após mudanças, execute `docker compose up --build -d`. Para parar sem remover dados: `docker compose down`. O arquivo `data\livros.db` permanece no host independentemente do ciclo de vida dos containers.
 
 ## Fluxo
 

@@ -1,4 +1,14 @@
 services:
+  database-init:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    user: "0:0"
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["touch /data/livros.db && chown app:app /data /data/livros.db"]
+    volumes:
+      - ./data:/data
+    restart: "no"
   web:
     build:
       context: .
@@ -11,6 +21,9 @@ services:
       COOKIE_SECURE: "false"
       FLASK_DEBUG: "1"
       SCHOOL_YEAR: ${SCHOOL_YEAR:-}
+    depends_on:
+      database-init:
+        condition: service_completed_successfully
     command:
       - python
       - -m
@@ -26,9 +39,5 @@ services:
     volumes:
       - ./server.py:/app/server.py
       - ./acervo:/app/acervo
-      - type: bind
-        source: ./livros.db
-        target: /data/livros.db
-        bind:
-          create_host_path: false
+      - ./data:/data
     init: true

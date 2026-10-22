@@ -1,4 +1,14 @@
 services:
+  database-init:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    user: "0:0"
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["touch /data/livros.db && chown app:app /data /data/livros.db"]
+    volumes:
+      - ./data:/data
+    restart: "no"
   web:
     build:
       context: .
@@ -10,12 +20,25 @@ services:
       PORT: "8000"
       COOKIE_SECURE: ${COOKIE_SECURE:-true}
       SCHOOL_YEAR: ${SCHOOL_YEAR:-}
-    ports:
-      - "127.0.0.1:${HOST_PORT:-8000}:8000"
+    depends_on:
+      database-init:
+        condition: service_completed_successfully
     volumes:
-      - type: bind
-        source: ./livros.db
-        target: /data/livros.db
-        bind:
-          create_host_path: false
+      - ./data:/data
+    init: true
+  nginx:
+    image: nginx:stable-alpine
+    restart: unless-stopped
+    depends_on:
+      web:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${HOST_PORT:-8000}:80"
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     init: true

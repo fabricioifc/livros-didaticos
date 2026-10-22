@@ -5,4 +5,6 @@
 /livros.db-shm
 /livros.db-wal
 /livros-backup*.db
+/livros.db*
 __pycache__/
+data/
