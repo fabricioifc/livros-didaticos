@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#f6f7f5">
   <title>Área do estudante — Acervo IFC</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
-  <script src="{{ url_for('static', filename='student.js') }}" defer></script>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v=static_asset_version('styles.css')) }}">
+  <script src="{{ url_for('static', filename='student.js', v=static_asset_version('student.js')) }}" defer></script>
 </head>
 <body class="student-portal">
   <div id="student-toast-region" class="toast-region" aria-live="polite"></div>

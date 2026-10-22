@@ -820,13 +820,21 @@ class LibraryAppTest(unittest.TestCase):
         self.assertIn(b"Importar CSV", page.data)
         self.assertIn(b"Exportar backup anual", page.data)
         self.assertIn(b"Aviso de Privacidade", page.data)
-        self.assertIn(b"/static/styles.css", page.data)
-        self.assertIn(b"/static/app.js", page.data)
-        self.assertIn(b"/static/vendor/qr-scanner/qr-scanner.umd.min.js", page.data)
+        self.assertRegex(page.data, rb"/static/styles\.css\?v=\d+")
+        self.assertRegex(page.data, rb"/static/app\.js\?v=\d+")
+        self.assertRegex(
+            page.data,
+            rb"/static/vendor/qr-scanner/qr-scanner\.umd\.min\.js\?v=\d+",
+        )
         privacy = self.client.get("/privacidade")
         self.assertEqual(privacy.status_code, 200)
+        self.assertRegex(privacy.data, rb"/static/styles\.css\?v=\d+")
         self.assertIn("15 a 17 anos".encode(), privacy.data)
         self.assertIn("controle interno e arquivo".encode(), privacy.data)
+        student_portal = self.client.get("/aluno")
+        self.assertEqual(student_portal.status_code, 200)
+        self.assertRegex(student_portal.data, rb"/static/styles\.css\?v=\d+")
+        self.assertRegex(student_portal.data, rb"/static/student\.js\?v=\d+")
         with self.client.get("/static/styles.css") as styles:
             self.assertEqual(styles.status_code, 200)
         with self.client.get("/static/app.js") as script:

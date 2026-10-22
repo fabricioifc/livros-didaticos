@@ -27,6 +27,11 @@ def create_app(test_config=None):
     if test_config:
         app.config.update(test_config)
 
+    def static_asset_version(filename):
+        asset_path = Path(app.static_folder) / filename
+        return str(asset_path.stat().st_mtime_ns)
+
+    app.jinja_env.globals["static_asset_version"] = static_asset_version
     initialize_db(app.config["DATABASE_PATH"], app.config["SCHOOL_YEAR"])
     app.register_blueprint(main)
     return app

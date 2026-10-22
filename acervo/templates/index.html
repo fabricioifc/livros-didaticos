@@ -8,9 +8,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
-  <script src="{{ url_for('static', filename='vendor/qr-scanner/qr-scanner.umd.min.js') }}" defer></script>
-  <script src="{{ url_for('static', filename='app.js') }}" defer></script>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v=static_asset_version('styles.css')) }}">
+  <script src="{{ url_for('static', filename='vendor/qr-scanner/qr-scanner.umd.min.js', v=static_asset_version('vendor/qr-scanner/qr-scanner.umd.min.js')) }}" defer></script>
+  <script src="{{ url_for('static', filename='app.js', v=static_asset_version('app.js')) }}" defer></script>
 </head>
 <body>
   <div id="toast-region" class="toast-region" aria-live="polite"></div>
