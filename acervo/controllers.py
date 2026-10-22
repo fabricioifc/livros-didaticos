@@ -51,6 +51,29 @@ def admin_required(view):
     return wrapped
 
 
+def student_required(view):
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        enrollment = session.get("student_enrollment")
+        if not enrollment:
+            return json_error("Faça login como estudante para continuar.", 401)
+        credential = services.repository.find_student_credential(
+            current_app.config["DATABASE_PATH"], enrollment
+        )
+        if (
+            not credential
+            or session.get("student_token_version") != credential["token_version"]
+        ):
+            session.pop("student_enrollment", None)
+            session.pop("student_token_version", None)
+            return json_error("Acesso de estudante não encontrado.", 401)
+        g.student_enrollment = enrollment
+        g.student_must_change_password = bool(credential["must_change_password"])
+        return view(*args, **kwargs)
+
+    return wrapped
+
+
 def request_body():
     body = request.get_json(silent=True)
     return body if isinstance(body, dict) else {}
@@ -68,6 +91,120 @@ def index():
 @main.get("/privacidade")
 def privacy_notice():
     return render_template("privacy.html")
+
+
+@main.get("/aluno")
+def student_portal():
+    return render_template("student.html")
+
+
+@main.post("/api/student-auth/login")
+def student_login():
+    if "csrf_token" in session:
+        error = csrf_error()
+        if error:
+            return error
+    body = request_body()
+    try:
+        student = services.authenticate_student(
+            current_app.config["DATABASE_PATH"],
+            body.get("enrollment"),
+            body.get("password"),
+        )
+    except services.ServiceError as error:
+        return handle_service_error(error)
+    session.clear()
+    session["student_enrollment"] = student["enrollment"]
+    credential = services.repository.find_student_credential(
+        current_app.config["DATABASE_PATH"], student["enrollment"]
+    )
+    session["student_token_version"] = credential["token_version"]
+    session["csrf_token"] = secrets.token_urlsafe(32)
+    return jsonify(
+        {
+            **student,
+            "csrf_token": session["csrf_token"],
+        }
+    )
+
+
+@main.get("/api/student-auth/session")
+def student_session():
+    enrollment = session.get("student_enrollment")
+    credential = (
+        services.repository.find_student_credential(
+            current_app.config["DATABASE_PATH"], enrollment
+        )
+        if enrollment
+        else None
+    )
+    if (
+        not credential
+        or session.get("student_token_version") != credential["token_version"]
+    ):
+        session.pop("student_enrollment", None)
+        session.pop("student_token_version", None)
+        session.setdefault("csrf_token", secrets.token_urlsafe(32))
+        return jsonify({"authenticated": False, "csrf_token": session["csrf_token"]})
+    return jsonify(
+        {
+            "authenticated": True,
+            "enrollment": enrollment,
+            "name": credential["name"],
+            "must_change_password": bool(credential["must_change_password"]),
+            "csrf_token": session.get("csrf_token", ""),
+        }
+    )
+
+
+@main.post("/api/student-auth/password")
+@student_required
+def change_student_password():
+    error = csrf_error()
+    if error:
+        return error
+    try:
+        services.change_student_password(
+            current_app.config["DATABASE_PATH"],
+            g.student_enrollment,
+            request_body(),
+        )
+    except services.ServiceError as error:
+        return handle_service_error(error)
+    credential = services.repository.find_student_credential(
+        current_app.config["DATABASE_PATH"], g.student_enrollment
+    )
+    session["student_token_version"] = credential["token_version"]
+    return jsonify({"ok": True})
+
+
+@main.post("/api/student-auth/qr")
+@student_required
+def create_student_qr():
+    error = csrf_error()
+    if error:
+        return error
+    try:
+        result = services.issue_student_qr(
+            current_app.config["DATABASE_PATH"],
+            g.student_enrollment,
+            current_app.config["SECRET_KEY"],
+            current_app.config["SCHOOL_YEAR"],
+        )
+    except services.ServiceError as error:
+        return handle_service_error(error)
+    return jsonify(result)
+
+
+@main.post("/api/student-auth/logout")
+@student_required
+def student_logout():
+    error = csrf_error()
+    if error:
+        return error
+    session.pop("student_enrollment", None)
+    session.pop("student_token_version", None)
+    return jsonify({"ok": True})
 
 
 @main.post("/api/auth/login")
@@ -167,6 +304,41 @@ def update_managed_user(user_id):
     except services.ServiceError as error:
         return handle_service_error(error)
     return jsonify(user)
+
+
+@main.post("/api/students/<enrollment>/student-access")
+@admin_required
+def reset_student_access(enrollment):
+    error = csrf_error()
+    if error:
+        return error
+    try:
+        password = services.reset_student_access(
+            current_app.config["DATABASE_PATH"], enrollment
+        )
+    except services.ServiceError as error:
+        return handle_service_error(error)
+    return jsonify({"temporary_password": password, "portal_url": "/aluno"})
+
+
+@main.post("/api/student-qr/verify")
+@login_required
+def verify_student_qr():
+    error = csrf_error()
+    if error:
+        return error
+    body = request_body()
+    try:
+        student = services.verify_student_qr(
+            current_app.config["DATABASE_PATH"],
+            body.get("token"),
+            current_app.config["SECRET_KEY"],
+            body.get("enrollment"),
+            current_app.config["SCHOOL_YEAR"],
+        )
+    except services.ServiceError as error:
+        return handle_service_error(error)
+    return jsonify(student)
 
 
 @main.get("/api/students")
@@ -273,6 +445,8 @@ def record_signature(enrollment, book_id, action):
             request_body().get("signature"),
             g.user_email,
             current_app.config["SCHOOL_YEAR"],
+            request_body().get("student_qr_token"),
+            current_app.config["SECRET_KEY"],
         )
     except services.ServiceError as error:
         return handle_service_error(error)

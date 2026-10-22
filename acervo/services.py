@@ -1,9 +1,15 @@
 import csv
 import io
 import re
+import secrets
 import sqlite3
+import time
 import unicodedata
+from io import BytesIO
 
+import jwt
+import qrcode
+from qrcode.image.svg import SvgPathImage
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from . import repository
@@ -80,6 +86,129 @@ def update_managed_user(database_path, target_id, body, current_user_id):
         message, status = errors[result]
         raise ServiceError(message, status)
     return next(user for user in repository.list_users(database_path) if user["id"] == target_id)
+
+
+def reset_student_access(database_path, enrollment):
+    temporary_password = secrets.token_urlsafe(15)
+    changed = repository.reset_student_credential(
+        database_path,
+        enrollment,
+        generate_password_hash(temporary_password),
+    )
+    if not changed:
+        raise ServiceError("Estudante não encontrado.", 404)
+    return temporary_password
+
+
+def authenticate_student(database_path, enrollment, password):
+    if not isinstance(enrollment, str) or not isinstance(password, str):
+        raise ServiceError("Informe matrícula e senha.", 400)
+    credential = repository.find_student_credential(database_path, enrollment.strip())
+    if not credential or not check_password_hash(credential["password_hash"], password):
+        raise ServiceError("Matrícula ou senha incorretas.", 401)
+    return {
+        "enrollment": credential["enrollment"],
+        "name": credential["name"],
+        "must_change_password": bool(credential["must_change_password"]),
+    }
+
+
+def change_student_password(database_path, enrollment, body):
+    current_password = body.get("current_password")
+    new_password = body.get("new_password")
+    credential = repository.find_student_credential(database_path, enrollment)
+    if not credential:
+        raise ServiceError("Acesso de estudante não encontrado.", 404)
+    if not credential["must_change_password"] and (
+        not isinstance(current_password, str)
+        or not check_password_hash(credential["password_hash"], current_password)
+    ):
+        raise ServiceError("A senha atual está incorreta.", 401)
+    if not isinstance(new_password, str) or len(new_password) < 12 or len(new_password) > 128:
+        raise ServiceError("A nova senha precisa ter entre 12 e 128 caracteres.", 400)
+    if not repository.change_student_password(
+        database_path, enrollment, generate_password_hash(new_password)
+    ):
+        raise ServiceError("Não foi possível atualizar a senha.", 409)
+
+
+def issue_student_qr(database_path, enrollment, secret_key, school_year):
+    credential = repository.find_student_credential(database_path, enrollment)
+    if not credential:
+        raise ServiceError("Acesso de estudante não encontrado.", 404)
+    if credential["must_change_password"]:
+        raise ServiceError("Altere a senha temporária antes de gerar o QR Code.", 403)
+    student = repository.find_student(database_path, enrollment, school_year)
+    if not student or student["status"] != "active":
+        raise ServiceError("O estudante não possui um ciclo letivo ativo.", 409)
+    now = int(time.time())
+    expires_at = now + 90
+    jti = secrets.token_urlsafe(24)
+    token = jwt.encode(
+        {
+            "iss": "acervo-ifc",
+            "aud": "book-checkout",
+            "sub": enrollment,
+            "jti": jti,
+            "ver": credential["token_version"],
+            "school_year": school_year,
+            "iat": now,
+            "exp": expires_at,
+        },
+        secret_key,
+        algorithm="HS256",
+    )
+    repository.issue_student_qr(database_path, enrollment, jti, expires_at)
+    qr = qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_M, box_size=8, border=3)
+    qr.add_data(token)
+    qr.make(fit=True)
+    image = qr.make_image(image_factory=SvgPathImage)
+    output = BytesIO()
+    image.save(output)
+    from base64 import b64encode
+
+    return {
+        "token": token,
+        "qr_data": "data:image/svg+xml;base64," + b64encode(output.getvalue()).decode("ascii"),
+        "expires_at": expires_at,
+        "lifetime_seconds": 90,
+    }
+
+
+def _validate_student_qr(database_path, token, secret_key, expected_enrollment, school_year):
+    if not isinstance(token, str) or len(token) > 4096:
+        raise ServiceError("QR Code inválido.", 400)
+    try:
+        claims = jwt.decode(
+            token,
+            secret_key,
+            algorithms=["HS256"],
+            audience="book-checkout",
+            issuer="acervo-ifc",
+            options={"require": ["exp", "iat", "iss", "aud", "sub", "jti", "ver"]},
+        )
+    except jwt.InvalidTokenError as error:
+        raise ServiceError("QR Code expirado ou inválido. Gere um novo código.", 401) from error
+    if claims["sub"] != expected_enrollment or claims.get("school_year") != school_year:
+        raise ServiceError("O QR Code não corresponde a este estudante ou ano letivo.", 409)
+    credential = repository.find_student_credential(database_path, claims["sub"])
+    if not credential or claims["ver"] != credential["token_version"]:
+        raise ServiceError("QR Code invalidado. Gere um novo código.", 401)
+    if not repository.verify_student_qr_record(
+        database_path, claims["sub"], claims["jti"], int(time.time())
+    ):
+        raise ServiceError("QR Code já utilizado ou invalidado. Gere um novo código.", 409)
+    student = repository.find_student(database_path, claims["sub"], school_year)
+    if not student or student["status"] != "active":
+        raise ServiceError("O estudante não possui um ciclo letivo ativo.", 409)
+    return claims, {"enrollment": claims["sub"], "name": student["name"]}
+
+
+def verify_student_qr(database_path, token, secret_key, expected_enrollment, school_year):
+    _, student = _validate_student_qr(
+        database_path, token, secret_key, expected_enrollment, school_year
+    )
+    return student
 
 
 def get_students(database_path, query, school_year):
@@ -205,7 +334,17 @@ def update_student(database_path, enrollment, body, school_year):
     return repository.find_student(database_path, enrollment, school_year)
 
 
-def sign_book(database_path, enrollment, book_id, action, signature, server_email, school_year):
+def sign_book(
+    database_path,
+    enrollment,
+    book_id,
+    action,
+    signature,
+    server_email,
+    school_year,
+    student_qr_token=None,
+    secret_key=None,
+):
     if action not in {"checkout", "return"}:
         raise ServiceError("Operação inválida.", 400)
     student = repository.find_student(database_path, enrollment, school_year)
@@ -217,6 +356,16 @@ def sign_book(database_path, enrollment, book_id, action, signature, server_emai
         raise ServiceError("Estudante não encontrado.", 404)
     if not validate_signature(signature):
         raise ServiceError("A assinatura está inválida ou vazia.", 400)
+    qr_jti = None
+    if action == "checkout":
+        claims, _ = _validate_student_qr(
+            database_path,
+            student_qr_token,
+            secret_key,
+            enrollment,
+            school_year,
+        )
+        qr_jti = claims["jti"]
     result = repository.record_signature(
         database_path,
         enrollment,
@@ -226,6 +375,7 @@ def sign_book(database_path, enrollment, book_id, action, signature, server_emai
         now_iso(),
         server_email,
         school_year,
+        qr_jti,
     )
     errors = {
         "book_not_found": ("Livro não encontrado para este estudante.", 404),
@@ -233,6 +383,7 @@ def sign_book(database_path, enrollment, book_id, action, signature, server_emai
         "already_checked_out": ("A assinatura de entrega deste título já foi registrada.", 409),
         "already_returned": ("A devolução deste título já foi registrada.", 409),
         "wrong_school_year": ("A entrega deste título pertence a outro ano letivo.", 409),
+        "student_qr_invalid": ("QR Code do estudante inválido, expirado ou já utilizado.", 409),
     }
     if result:
         message, status = errors[result]

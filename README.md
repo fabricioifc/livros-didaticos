@@ -13,9 +13,12 @@ acervo/
 ├── repository.py    # Persistência e consultas SQLite
 ├── services.py      # Casos de uso e validações do negócio
 ├── templates/
-│   └── index.html   # View renderizada pelo Flask
+│   ├── index.html   # View do servidor
+│   └── student.html # Portal individual do estudante
 └── static/
     ├── app.js       # Interações da interface
+    ├── student.js  # Login e QR temporário do estudante
+    ├── vendor/qr-scanner/ # Leitor QR local (qr-scanner 1.4.2, MIT)
     └── styles.css   # Estilos
 server.py            # Inicialização e comando administrativo
 test_app.py          # Testes da aplicação
@@ -116,6 +119,9 @@ Para atualizar as imagens após mudanças, execute `docker compose up --build -d
 - Cadastre cada estudante com nome, matrícula única e ano (1º, 2º ou 3º).
 - Na tela **Estudantes**, use **Baixar modelo CSV** para obter uma planilha vazia com os cabeçalhos `matricula`, `nome` e `turma`; preencha-a e importe pelo botão **Importar CSV**. A turma pode ser `1`, `1º`, `1°` ou `1º ano` (equivalente para 2º e 3º). Também são aceitos arquivos separados por vírgula ou tabulação e o cabeçalho `matrícula`. Linhas com matrícula já cadastrada, inclusive repetidas no mesmo arquivo, são ignoradas; linhas inválidas são informadas ao final.
 - Abra o termo para registrar a assinatura manuscrita do estudante em cada título entregue.
+- Para habilitar a confirmação por QR, um administrador abre o estudante e usa **Gerar acesso do aluno**. Após conferir presencialmente a identidade, entregue a senha temporária ao estudante por um canal seguro. O estudante acessa `/aluno`, entra com matrícula e senha temporária e cria sua senha pessoal (mínimo de 12 caracteres).
+- No momento da retirada, o estudante entra em `/aluno` e gera um QR Code de curta duração (90 segundos). No detalhe do estudante, o servidor seleciona **Assinar entrega**, escaneia o QR pela câmera com a biblioteca local `qr-scanner` ou cola o token e, após a validação, o estudante assina na tela. A câmera exige HTTPS (o Cloudflare Tunnel fornece esse contexto) e permissão do navegador. Cada QR é individual, de uso único e associado à matrícula e ao ano letivo; gerar outro código invalida o anterior. Devoluções continuam sendo registradas pelo servidor sem QR.
+- O administrador pode redefinir o acesso do estudante; a senha temporária é exibida uma única vez. Esse procedimento invalida sessões estudantis e QR Codes anteriores. Oriente o estudante a não compartilhar senha nem capturas do QR.
 - Na devolução, o servidor registra a assinatura título por título. A devolução só fica disponível depois da entrega.
 - Use **Exportar PDF** e escolha **Salvar como PDF** no diálogo de impressão do navegador. O termo inclui o registro de cada assinatura já feita e os espaços ainda pendentes.
 - Na tela **Estudantes**, use **Exportar backup anual** para reunir em um único PDF todos os termos do ano letivo atual com o status de entrega/devolução vigente. No diálogo de impressão, selecione **Salvar como PDF**; cada termo começa em uma nova página. Estudantes concluídos em anos anteriores, sem termo no ciclo atual, não são incluídos.
@@ -146,7 +152,7 @@ Administradores veem a seção **Usuários**, podem cadastrar contas `@ifc.edu.b
 
 O botão Google permanece desativado: OAuth não está conectado até que o campus configure um provedor OIDC e suas credenciais e URLs de callback. Não publique este servidor diretamente na internet sem configurar esses controles e uma política de backup.
 
-As assinaturas manuscritas são armazenadas como imagens junto às datas e ao registro do servidor. Validade jurídica e requisitos de assinatura eletrônica devem ser avaliados pelo IFC antes do uso oficial.
+As assinaturas manuscritas são armazenadas como imagens junto às datas e ao registro do servidor. O QR autentica a sessão do estudante, mas não substitui a avaliação institucional sobre validade jurídica e requisitos de assinatura eletrônica. Validade jurídica e uso de credenciais por estudantes menores de idade devem ser avaliados pelo IFC antes do uso oficial.
 
 ## Privacidade
 

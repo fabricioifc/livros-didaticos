@@ -1,4 +1,5 @@
 import sqlite3
+import time
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -38,6 +39,18 @@ def initialize_db(database_path, school_year):
                 name TEXT NOT NULL,
                 grade TEXT NOT NULL CHECK (grade IN ('1º', '2º', '3º')),
                 created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS student_credentials (
+                enrollment TEXT PRIMARY KEY REFERENCES students(enrollment) ON DELETE CASCADE,
+                password_hash TEXT NOT NULL,
+                must_change_password INTEGER NOT NULL DEFAULT 1 CHECK (must_change_password IN (0, 1)),
+                token_version INTEGER NOT NULL DEFAULT 1
+            );
+            CREATE TABLE IF NOT EXISTS student_qr_tokens (
+                jti TEXT PRIMARY KEY,
+                enrollment TEXT NOT NULL REFERENCES students(enrollment) ON DELETE CASCADE,
+                expires_at INTEGER NOT NULL,
+                used_at INTEGER
             );
             CREATE TABLE IF NOT EXISTS book_signatures (
                 enrollment TEXT NOT NULL REFERENCES students(enrollment) ON DELETE CASCADE,
@@ -271,6 +284,77 @@ def find_user_by_id(database_path, user_id):
     return dict(row) if row else None
 
 
+def find_student_credential(database_path, enrollment):
+    with database(database_path) as db:
+        row = db.execute(
+            """SELECT c.enrollment, c.password_hash, c.must_change_password,
+                      c.token_version, s.name
+               FROM student_credentials c
+               JOIN students s ON s.enrollment = c.enrollment
+               WHERE c.enrollment = ?""",
+            (enrollment,),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def reset_student_credential(database_path, enrollment, password_hash):
+    with database(database_path) as db:
+        if not db.execute(
+            "SELECT 1 FROM students WHERE enrollment = ?", (enrollment,)
+        ).fetchone():
+            return False
+        db.execute(
+            """INSERT INTO student_credentials
+                   (enrollment, password_hash, must_change_password, token_version)
+               VALUES (?, ?, 1, 1)
+               ON CONFLICT(enrollment) DO UPDATE SET
+                   password_hash = excluded.password_hash,
+                   must_change_password = 1,
+                   token_version = student_credentials.token_version + 1""",
+            (enrollment, password_hash),
+        )
+        db.execute("DELETE FROM student_qr_tokens WHERE enrollment = ?", (enrollment,))
+    return True
+
+
+def change_student_password(database_path, enrollment, password_hash):
+    with database(database_path) as db:
+        cursor = db.execute(
+            """UPDATE student_credentials
+               SET password_hash = ?, must_change_password = 0,
+                   token_version = token_version + 1
+               WHERE enrollment = ?""",
+            (password_hash, enrollment),
+        )
+        if cursor.rowcount == 1:
+            db.execute(
+                "DELETE FROM student_qr_tokens WHERE enrollment = ?", (enrollment,)
+            )
+    return cursor.rowcount == 1
+
+
+def issue_student_qr(database_path, enrollment, jti, expires_at):
+    with database(database_path) as db:
+        db.execute(
+            "DELETE FROM student_qr_tokens WHERE enrollment = ?", (enrollment,)
+        )
+        db.execute(
+            """INSERT INTO student_qr_tokens (jti, enrollment, expires_at)
+               VALUES (?, ?, ?)""",
+            (jti, enrollment, expires_at),
+        )
+
+
+def verify_student_qr_record(database_path, enrollment, jti, now):
+    with database(database_path) as db:
+        row = db.execute(
+            """SELECT 1 FROM student_qr_tokens
+               WHERE enrollment = ? AND jti = ? AND expires_at > ? AND used_at IS NULL""",
+            (enrollment, jti, now),
+        ).fetchone()
+    return row is not None
+
+
 def add_user(database_path, email, password_hash, created_at, is_admin=False):
     with database(database_path) as db:
         cursor = db.execute(
@@ -470,7 +554,15 @@ def list_students(database_path, query, school_year):
 
 
 def record_signature(
-    database_path, enrollment, book_id, action, signature, signed_at, return_by, school_year
+    database_path,
+    enrollment,
+    book_id,
+    action,
+    signature,
+    signed_at,
+    return_by,
+    school_year,
+    student_qr_jti=None,
 ):
     with database(database_path) as db:
         book = db.execute(
@@ -486,6 +578,16 @@ def record_signature(
             return "checkout_required"
         if action == "checkout" and book["checkout_signature"]:
             return "already_checked_out"
+        if action == "checkout":
+            now = int(time.time())
+            consumed = db.execute(
+                """UPDATE student_qr_tokens SET used_at = ?
+                   WHERE enrollment = ? AND jti = ? AND expires_at > ?
+                     AND used_at IS NULL""",
+                (now, enrollment, student_qr_jti, now),
+            )
+            if consumed.rowcount != 1:
+                return "student_qr_invalid"
         if action == "return" and book["return_signature"]:
             return "already_returned"
         if action == "checkout":

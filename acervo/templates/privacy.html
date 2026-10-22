@@ -33,7 +33,7 @@
       </div>
 
       <h2>Quais dados são registrados?</h2>
-      <p>O sistema guarda o nome, a matrícula e o ano/turma do estudante, os títulos didáticos relacionados ao termo, o status de entrega e devolução e as assinaturas feitas na tela. Também registra datas e horários das assinaturas e o e-mail institucional do servidor que confirma cada devolução.</p>
+      <p>O sistema guarda o nome, a matrícula e o ano/turma do estudante, os títulos didáticos relacionados ao termo, o status de entrega e devolução e as assinaturas feitas na tela. Também registra datas e horários das assinaturas, o e-mail institucional do servidor que confirma cada devolução e, para estudantes com acesso ao portal, um hash da senha e dados técnicos mínimos para validar QR Codes temporários.</p>
 
       <h2>Para que os dados são usados?</h2>
       <p>Os dados são tratados para controle interno e arquivo dos termos de compromisso de entrega e devolução dos livros didáticos do curso. Eles permitem identificar a quem cada título foi entregue, acompanhar sua devolução e consultar ou emitir uma cópia do termo.</p>
@@ -41,6 +41,7 @@
 
       <h2>Quem pode consultar os registros?</h2>
       <p>O acesso é restrito a servidores com conta institucional autorizada. Administradores podem gerenciar contas e permissões; servidores autorizados podem consultar os termos e registrar operações. Cópias em PDF e backups do banco também contêm dados pessoais e devem ser guardados apenas em locais institucionais protegidos, com acesso limitado.</p>
+      <p>O portal do estudante usa credenciais individuais para confirmar sua identidade na retirada. O QR Code é assinado digitalmente, vale por 90 segundos e só pode confirmar uma entrega; o sistema mantém o identificador e o estado de uso do código pelo tempo necessário à validação e à prevenção de reutilização. A senha é armazenada como hash, não em texto legível. A senha temporária é exibida ao servidor administrador uma única vez, para entrega ao estudante.</p>
 
       <h2>Por quanto tempo os dados ficam guardados?</h2>
       <p>Os registros devem ser mantidos pelo período necessário ao controle e ao arquivo institucional, conforme a tabela de temporalidade e as regras de gestão documental aplicáveis ao IFC. O prazo específico deve ser definido e informado pela instituição. Ao fim do período aplicável, os dados e cópias de backup devem ser eliminados ou submetidos à destinação arquivística adequada, conforme orientação institucional.</p>
