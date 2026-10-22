@@ -205,7 +205,58 @@ def update_student(database_path, enrollment, body, school_year):
     return repository.find_student(database_path, enrollment, school_year)
 
 
-def sign_book(database_path, enrollment, book_id, action, signature, server_email, school_year):
+def get_book_signature_history(database_path, enrollment, book_id):
+    history = repository.get_book_signature_history(database_path, enrollment, book_id)
+    if history is None:
+        raise ServiceError("Livro não encontrado para este estudante.", 404)
+    return history
+
+
+def cancel_book_signature(
+    database_path, enrollment, book_id, action, body, actor_email, school_year
+):
+    if action not in {"checkout", "return"}:
+        raise ServiceError("Operação de cancelamento inválida.", 400)
+    reason = body.get("reason")
+    if not isinstance(reason, str) or not 5 <= len(reason.strip()) <= 500:
+        raise ServiceError("Informe o motivo da correção (entre 5 e 500 caracteres).", 400)
+    result = repository.cancel_book_signature(
+        database_path,
+        enrollment,
+        book_id,
+        action,
+        reason.strip(),
+        now_iso(),
+        actor_email,
+        school_year,
+    )
+    errors = {
+        "book_not_found": ("Livro não encontrado para este estudante.", 404),
+        "checkout_not_found": ("Não há uma entrega ativa para cancelar.", 409),
+        "return_not_found": ("Não há uma devolução ativa para cancelar.", 409),
+        "return_must_be_cancelled_first": (
+            "Cancele a devolução antes de cancelar a entrega.", 409
+        ),
+        "invalid_action": ("Operação de cancelamento inválida.", 400),
+    }
+    if result:
+        message, status = errors[result]
+        raise ServiceError(message, status)
+    return repository.find_student(database_path, enrollment, school_year) or repository.find_student(
+        database_path, enrollment
+    )
+
+
+def sign_book(
+    database_path,
+    enrollment,
+    book_id,
+    action,
+    signature,
+    server_email,
+    school_year,
+    enrollment_confirmation=None,
+):
     if action not in {"checkout", "return"}:
         raise ServiceError("Operação inválida.", 400)
     student = repository.find_student(database_path, enrollment, school_year)
@@ -217,6 +268,14 @@ def sign_book(database_path, enrollment, book_id, action, signature, server_emai
         raise ServiceError("Estudante não encontrado.", 404)
     if not validate_signature(signature):
         raise ServiceError("A assinatura está inválida ou vazia.", 400)
+    if action == "checkout" and (
+        not isinstance(enrollment_confirmation, str)
+        or enrollment_confirmation.strip() != enrollment
+    ):
+        raise ServiceError(
+            "A matrícula informada não corresponde ao estudante selecionado.",
+            400,
+        )
     result = repository.record_signature(
         database_path,
         enrollment,

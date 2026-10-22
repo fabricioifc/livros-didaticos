@@ -109,7 +109,7 @@ class LibraryAppTest(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 400)
 
-    def test_student_qr_is_required_student_bound_and_single_use(self):
+    def test_checkout_requires_the_selected_students_enrollment(self):
         self.login()
         created = self.client.post(
             "/api/students",
@@ -121,68 +121,119 @@ class LibraryAppTest(unittest.TestCase):
             b"\x89PNG\r\n\x1a\nvalid-test-image"
         ).decode()
 
-        missing_qr = self.client.put(
+        missing_enrollment = self.client.put(
             "/api/students/2026001/books/portugues-2026-1/checkout",
             json={"signature": signature},
             headers={"X-CSRF-Token": self.csrf()},
         )
-        self.assertEqual(missing_qr.status_code, 400)
-
-        qr_token = self.student_qr_token("2026001")
-        wrong_student = self.client.post(
-            "/api/student-qr/verify",
-            json={"token": qr_token, "enrollment": "2026002"},
+        self.assertEqual(missing_enrollment.status_code, 400)
+        mismatched_enrollment = self.client.put(
+            "/api/students/2026001/books/portugues-2026-1/checkout",
+            json={"signature": signature, "enrollment_confirmation": "2026002"},
             headers={"X-CSRF-Token": self.csrf()},
         )
-        self.assertEqual(wrong_student.status_code, 409)
-        valid_student = self.client.post(
-            "/api/student-qr/verify",
-            json={"token": qr_token, "enrollment": "2026001"},
-            headers={"X-CSRF-Token": self.csrf()},
-        )
-        self.assertEqual(valid_student.status_code, 200)
+        self.assertEqual(mismatched_enrollment.status_code, 400)
         checked_out = self.client.put(
             "/api/students/2026001/books/portugues-2026-1/checkout",
-            json={"signature": signature, "student_qr_token": qr_token},
+            json={"signature": signature, "enrollment_confirmation": "2026001"},
             headers={"X-CSRF-Token": self.csrf()},
         )
         self.assertEqual(checked_out.status_code, 200)
-        replay = self.client.put(
+        second_checkout = self.client.put(
             "/api/students/2026001/books/matematica-2026-1/checkout",
-            json={"signature": signature, "student_qr_token": qr_token},
+            json={"signature": signature, "enrollment_confirmation": "2026001"},
             headers={"X-CSRF-Token": self.csrf()},
         )
-        self.assertEqual(replay.status_code, 409)
+        self.assertEqual(second_checkout.status_code, 200)
 
-        old_token = self.student_qr_token("2026001")
-        admin = self.app.test_client()
-        admin_csrf = admin.get("/api/auth/session").get_json()["csrf_token"]
-        admin_login = admin.post(
-            "/api/auth/login",
+    def test_book_signature_history_and_cancellation_preserve_all_events(self):
+        self.login()
+        created = self.client.post(
+            "/api/students",
+            json={"name": "Ana Silva", "enrollment": "2026001", "grade": "1º"},
+            headers={"X-CSRF-Token": self.csrf()},
+        )
+        self.assertEqual(created.status_code, 201)
+        signature = "data:image/png;base64," + base64.b64encode(
+            b"\x89PNG\r\n\x1a\nvalid-test-image"
+        ).decode()
+        checkout = self.client.put(
+            "/api/students/2026001/books/portugues-2026-1/checkout",
             json={
-                "email": "fabricio.bizotto@ifc.edu.br",
-                "password": "senha-admin-segura",
+                "signature": signature,
+                "enrollment_confirmation": "2026001",
             },
-            headers={"X-CSRF-Token": admin_csrf},
-        )
-        admin_csrf = admin_login.get_json()["csrf_token"]
-        reset = admin.post(
-            "/api/students/2026001/student-access",
-            json={},
-            headers={"X-CSRF-Token": admin_csrf},
-        )
-        self.assertEqual(reset.status_code, 200)
-        invalidated = self.client.post(
-            "/api/student-qr/verify",
-            json={"token": old_token, "enrollment": "2026001"},
             headers={"X-CSRF-Token": self.csrf()},
         )
-        self.assertEqual(invalidated.status_code, 401)
+        self.assertEqual(checkout.status_code, 200)
+        returned = self.client.put(
+            "/api/students/2026001/books/portugues-2026-1/return",
+            json={"signature": signature},
+            headers={"X-CSRF-Token": self.csrf()},
+        )
+        self.assertEqual(returned.status_code, 200)
 
-    def test_student_portal_is_publicly_rendered(self):
-        response = self.client.get("/aluno")
-        self.assertEqual(response.status_code, 200)
-        self.assertIn(b"student-login-form", response.data)
+        history_path = "/api/students/2026001/books/portugues-2026-1/history"
+        initial_history = self.client.get(history_path)
+        self.assertEqual(initial_history.status_code, 200)
+        self.assertEqual(
+            [entry["action"] for entry in initial_history.get_json()["history"]],
+            ["return", "checkout"],
+        )
+        self.assertEqual(
+            initial_history.get_json()["history"][0]["actor_email"],
+            "servidor@ifc.edu.br",
+        )
+
+        cancel_checkout_early = self.client.post(
+            "/api/students/2026001/books/portugues-2026-1/checkout/cancel",
+            json={"reason": "Corrigir sequência"},
+            headers={"X-CSRF-Token": self.csrf()},
+        )
+        self.assertEqual(cancel_checkout_early.status_code, 409)
+        self.assertIn("Cancele a devolução", cancel_checkout_early.get_json()["error"])
+        invalid_reason = self.client.post(
+            "/api/students/2026001/books/portugues-2026-1/return/cancel",
+            json={"reason": "erro"},
+            headers={"X-CSRF-Token": self.csrf()},
+        )
+        self.assertEqual(invalid_reason.status_code, 400)
+
+        cancelled_return = self.client.post(
+            "/api/students/2026001/books/portugues-2026-1/return/cancel",
+            json={"reason": "A devolução foi registrada por engano."},
+            headers={"X-CSRF-Token": self.csrf()},
+        )
+        self.assertEqual(cancelled_return.status_code, 200)
+        book = next(
+            item for item in cancelled_return.get_json()["books"]
+            if item["id"] == "portugues-2026-1"
+        )
+        self.assertTrue(book["checkout_signature"])
+        self.assertIsNone(book["return_signature"])
+
+        cancelled_checkout = self.client.post(
+            "/api/students/2026001/books/portugues-2026-1/checkout/cancel",
+            json={"reason": "A assinatura ficou ilegível e será refeita."},
+            headers={"X-CSRF-Token": self.csrf()},
+        )
+        self.assertEqual(cancelled_checkout.status_code, 200)
+        book = next(
+            item for item in cancelled_checkout.get_json()["books"]
+            if item["id"] == "portugues-2026-1"
+        )
+        self.assertIsNone(book["checkout_signature"])
+        self.assertIsNone(book["return_signature"])
+        history = self.client.get(history_path).get_json()["history"]
+        self.assertEqual(
+            [entry["action"] for entry in history],
+            ["cancel_checkout", "cancel_return", "return", "checkout"],
+        )
+        self.assertEqual(
+            history[0]["reason"],
+            "A assinatura ficou ilegível e será refeita.",
+        )
+        self.assertEqual(history[0]["actor_email"], "servidor@ifc.edu.br")
 
     def test_designated_admin_can_manage_accounts_and_regular_users_cannot(self):
         database_path = self.app.config["DATABASE_PATH"]
@@ -466,7 +517,7 @@ class LibraryAppTest(unittest.TestCase):
             "/api/students/2026001/books/portugues-2026-1/checkout",
             json={
                 "signature": signature,
-                "student_qr_token": self.student_qr_token("2026001"),
+                "enrollment_confirmation": "2026001",
             },
             headers={"X-CSRF-Token": self.csrf()},
         )
@@ -483,7 +534,7 @@ class LibraryAppTest(unittest.TestCase):
             "/api/students/2026001/books/matematica-2026-1/checkout",
             json={
                 "signature": signature,
-                "student_qr_token": self.student_qr_token("2026001"),
+                "enrollment_confirmation": "2026001",
             },
             headers={"X-CSRF-Token": self.csrf()},
         )
@@ -519,7 +570,7 @@ class LibraryAppTest(unittest.TestCase):
             "/api/students/2026001/books/historia/checkout",
             json={
                 "signature": signature,
-                "student_qr_token": self.student_qr_token("2026001"),
+                "enrollment_confirmation": "2026001",
             },
             headers={"X-CSRF-Token": self.csrf()},
         )
@@ -554,7 +605,7 @@ class LibraryAppTest(unittest.TestCase):
             "/api/students/2026001/books/portugues-2026-1/checkout",
             json={
                 "signature": signature,
-                "student_qr_token": self.student_qr_token("2026001"),
+                "enrollment_confirmation": "2026001",
             },
             headers={"X-CSRF-Token": self.csrf()},
         )
@@ -596,7 +647,7 @@ class LibraryAppTest(unittest.TestCase):
                     "/api/students/2026001/books/ingles/checkout",
                     json={
                         "signature": signature,
-                        "student_qr_token": self.student_qr_token("2026001"),
+                        "enrollment_confirmation": "2026001",
                     },
                     headers={"X-CSRF-Token": self.csrf()},
                 )
@@ -690,6 +741,12 @@ class LibraryAppTest(unittest.TestCase):
             book for book in prior_term["books"] if book["id"] == "portugues-2026-1"
         )
         self.assertEqual(migrated_portuguese["checkout_signature"], "assinatura-preservada")
+        migrated_history = repository.get_book_signature_history(
+            str(database_path), "2026002", "portugues-2026-1"
+        )
+        self.assertEqual(len(migrated_history), 1)
+        self.assertEqual(migrated_history[0]["action"], "checkout")
+        self.assertEqual(migrated_history[0]["signature"], "assinatura-preservada")
         current_term = find_student(str(database_path), "2026002", 2027)
         self.assertEqual(current_term["grade"], "2º")
         carried_history = next(book for book in current_term["books"] if book["id"] == "historia")
@@ -706,16 +763,76 @@ class LibraryAppTest(unittest.TestCase):
         self.assertIn(b"Importar CSV", page.data)
         self.assertIn(b"Exportar backup anual", page.data)
         self.assertIn(b"Aviso de Privacidade", page.data)
-        self.assertIn(b"/static/styles.css", page.data)
-        self.assertIn(b"/static/app.js", page.data)
+        self.assertRegex(page.data, rb"/static/styles\.css\?v=\d+")
+        self.assertRegex(page.data, rb"/static/app\.js\?v=\d+")
+        self.assertIn(b"Confirme a matr\xc3\xadcula", page.data)
+        self.assertNotIn(b"QR Code", page.data)
         privacy = self.client.get("/privacidade")
         self.assertEqual(privacy.status_code, 200)
+        self.assertRegex(privacy.data, rb"/static/styles\.css\?v=\d+")
         self.assertIn("15 a 17 anos".encode(), privacy.data)
         self.assertIn("controle interno e arquivo".encode(), privacy.data)
+        self.assertEqual(self.client.get("/aluno").status_code, 404)
+        self.assertEqual(self.client.get("/api/student-auth/session").status_code, 404)
+        self.assertEqual(
+            self.client.post("/api/student-qr/verify").status_code,
+            404,
+        )
         with self.client.get("/static/styles.css") as styles:
             self.assertEqual(styles.status_code, 200)
         with self.client.get("/static/app.js") as script:
             self.assertEqual(script.status_code, 200)
+        self.assertEqual(
+            self.client.get("/static/vendor/qr-scanner/qr-scanner.umd.min.js").status_code,
+            404,
+        )
+        database_path = self.app.config["DATABASE_PATH"]
+        database = sqlite3.connect(database_path)
+        try:
+            initial_tables = {
+                row[0]
+                for row in database.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table'"
+                )
+            }
+            self.assertTrue(
+                {"student_credentials", "student_qr_tokens", "student_qr_attempts"}.isdisjoint(
+                    initial_tables
+                )
+            )
+            database.executescript(
+                """
+                CREATE TABLE student_credentials (enrollment TEXT PRIMARY KEY);
+                CREATE TABLE student_qr_tokens (code TEXT PRIMARY KEY);
+                CREATE TABLE student_qr_attempts (user_id INTEGER PRIMARY KEY);
+                """
+            )
+            database.execute(
+                "INSERT INTO student_credentials (enrollment) VALUES ('historical-student')"
+            )
+            database.commit()
+        finally:
+            database.close()
+        repository.initialize_db(database_path, 2026)
+        database = sqlite3.connect(database_path)
+        try:
+            tables = {
+                row[0]
+                for row in database.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table'"
+                )
+            }
+            historical_enrollment = database.execute(
+                "SELECT enrollment FROM student_credentials"
+            ).fetchone()[0]
+        finally:
+            database.close()
+        self.assertTrue(
+            {"student_credentials", "student_qr_tokens", "student_qr_attempts"}.issubset(
+                tables
+            )
+        )
+        self.assertEqual(historical_enrollment, "historical-student")
 
 
 if __name__ == "__main__":

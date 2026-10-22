@@ -12,7 +12,8 @@ const state = {
   editingStudent: null,
   signatureBook: null,
   signatureAction: "checkout",
-  studentQrToken: null,
+  enrollmentConfirmation: "",
+  historyBook: null,
   schoolYear: null,
   drawing: false,
   hasSignature: false,
@@ -32,7 +33,7 @@ const elements = {
   studentForm: $("#student-form"),
   detailDialog: $("#student-detail-dialog"),
   signatureDialog: $("#signature-dialog"),
-  qrScanDialog: $("#qr-scan-dialog"),
+  enrollmentDialog: $("#enrollment-confirmation-dialog"),
   canvas: $("#signature-canvas"),
   toastRegion: $("#toast-region"),
 };
@@ -326,20 +327,107 @@ function renderStudentDetail() {
     return `<article class="book-row">
       <div class="book-info"><span class="book-index">${String(student.books.indexOf(book) + 1).padStart(2, "0")}</span><div><strong>${escapeHtml(book.title)}</strong>${carryNotice}${status}</div></div>
       <div class="book-signatures">      <span class="signature-cell">${checkoutSignature || '<span class="signature-placeholder-text">—</span>'}<small>Aluno</small></span><span class="signature-cell">${returnSignature || '<span class="signature-placeholder-text">—</span>'}<small>Servidor</small></span></div>
-      <div class="book-action-cell">${button}</div>
+      <div class="book-action-cell">${button}<button class="book-history-link" data-action="book-history" data-book="${escapeHtml(book.id)}" type="button">Histórico</button></div>
     </article>`;
   }).join("");
 }
 
-function openSignature(bookId, action, verifiedQrToken = null) {
-  if (action === "checkout" && !verifiedQrToken) {
-    openQrScanner(bookId);
+async function openBookHistory(bookId) {
+  state.historyBook = state.currentStudent.books.find((book) => book.id === bookId);
+  if (!state.historyBook) return;
+  $("#book-history-title").textContent = state.historyBook.title;
+  $("#book-history-list").innerHTML = '<li class="history-empty">Carregando histórico…</li>';
+  $("#history-action-message").textContent = "";
+  $("#history-correction-reason").value = "";
+  updateHistoryCorrectionActions();
+  $("#book-history-dialog").showModal();
+  await refreshBookHistory();
+}
+
+async function refreshBookHistory() {
+  const path = `/api/students/${encodeURIComponent(state.currentStudent.enrollment)}/books/${encodeURIComponent(state.historyBook.id)}/history`;
+  try {
+    const { history } = await api(path);
+    $("#book-history-list").innerHTML = history.length
+      ? history.map((entry) => {
+        const labels = {
+          checkout: "Entrega assinada",
+          return: "Devolução assinada",
+          cancel_checkout: "Entrega cancelada",
+          cancel_return: "Devolução cancelada",
+        };
+        const signature = entry.signature
+          ? `<img class="history-signature" src="${escapeHtml(entry.signature)}" alt="Assinatura registrada">`
+          : "";
+        const actor = entry.actor_email
+          ? escapeHtml(entry.actor_email)
+          : "Registro importado do histórico anterior";
+        const reason = entry.reason
+          ? `<p class="history-reason-text"><strong>Motivo:</strong> ${escapeHtml(entry.reason)}</p>`
+          : "";
+        const recordedAt = entry.recorded_at && !Number.isNaN(Date.parse(entry.recorded_at))
+          ? formatDate(entry.recorded_at, { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })
+          : "Data não registrada";
+        return `<li class="book-history-entry book-history-entry--${escapeHtml(entry.action)}">
+          <div class="history-entry-heading"><strong>${labels[entry.action] || "Evento"}</strong><span>Ano letivo ${entry.school_year}</span></div>
+          <p>${recordedAt}</p>
+          <p>Registrado por: ${actor}</p>${reason}${signature}
+        </li>`;
+      }).join("")
+      : '<li class="history-empty">Nenhum registro de assinatura para este livro.</li>';
+    updateHistoryCorrectionActions();
+  } catch (error) {
+    $("#book-history-list").innerHTML = `<li class="history-empty history-error">${escapeHtml(error.message)}</li>`;
+  }
+}
+
+function updateHistoryCorrectionActions() {
+  const book = state.historyBook;
+  if (!book) return;
+  $("#cancel-checkout-button").hidden = !book.checkout_signature || Boolean(book.return_signature);
+  $("#cancel-return-button").hidden = !book.return_signature;
+  const canCancel = !$("#cancel-checkout-button").hidden || !$("#cancel-return-button").hidden;
+  $("#history-correction").hidden = !canCancel;
+  const notice = book.checkout_signature && book.return_signature
+    ? "Cancele a devolução antes de cancelar a entrega."
+    : "";
+  $("#history-action-message").textContent = notice;
+}
+
+async function cancelBookRecord(action) {
+  if (!state.historyBook) return;
+  const reasonField = $("#history-correction-reason");
+  const reason = reasonField.value.trim();
+  if (reason.length < 5) {
+    $("#history-action-message").textContent = "Informe o motivo da correção (mínimo de 5 caracteres).";
+    reasonField.focus();
     return;
   }
+  const button = $(`#cancel-${action}-button`);
+  button.disabled = true;
+  $("#history-action-message").textContent = "";
+  try {
+    await api(
+      `/api/students/${encodeURIComponent(state.currentStudent.enrollment)}/books/${encodeURIComponent(state.historyBook.id)}/${action}/cancel`,
+      { method: "POST", body: JSON.stringify({ reason }) },
+    );
+    await refreshCurrentStudent();
+    $("#history-correction-reason").value = "";
+    await refreshBookHistory();
+    notify(action === "checkout" ? "Entrega cancelada e registrada no histórico." : "Devolução cancelada e registrada no histórico.");
+  } catch (error) {
+    $("#history-action-message").textContent = error.message;
+    notify(error.message, "error");
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function openSignature(bookId, action, enrollmentConfirmation = "") {
   const book = state.currentStudent.books.find((item) => item.id === bookId);
   state.signatureBook = book;
   state.signatureAction = action;
-  state.studentQrToken = verifiedQrToken;
+  state.enrollmentConfirmation = enrollmentConfirmation;
   state.hasSignature = false;
   $("#signature-eyebrow").textContent = action === "checkout" ? "ASSINATURA DO ESTUDANTE" : "ASSINATURA DO SERVIDOR";
   $("#signature-title").textContent = action === "checkout" ? "Assine para confirmar" : "Assine a devolução";
@@ -352,91 +440,13 @@ function openSignature(bookId, action, verifiedQrToken = null) {
   window.requestAnimationFrame(resizeCanvas);
 }
 
-let qrCameraStream = null;
-let qrScanning = false;
-
-function stopQrCamera() {
-  qrScanning = false;
-  if (qrCameraStream) {
-    qrCameraStream.getTracks().forEach((track) => track.stop());
-    qrCameraStream = null;
-  }
-  $("#qr-camera").srcObject = null;
-}
-
-async function openQrScanner(bookId) {
+function openCheckoutConfirmation(bookId) {
   state.signatureBook = state.currentStudent.books.find((item) => item.id === bookId);
-  state.studentQrToken = null;
-  $("#qr-scan-status").textContent =
-    `Escaneie o QR Code temporário de ${state.currentStudent.name}.`;
-  $("#qr-manual-token").value = "";
-  $("#qr-camera").hidden = true;
-  elements.qrScanDialog.showModal();
-  if (!navigator.mediaDevices?.getUserMedia || typeof BarcodeDetector === "undefined") {
-    $("#qr-scan-status").textContent =
-      "Leitor de câmera indisponível neste navegador. Use um leitor QR que digite o código ou cole o token abaixo.";
-    return;
-  }
-  try {
-    qrCameraStream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: { ideal: "environment" } },
-      audio: false,
-    });
-    if (!elements.qrScanDialog.open) {
-      stopQrCamera();
-      return;
-    }
-    const video = $("#qr-camera");
-    video.srcObject = qrCameraStream;
-    video.hidden = false;
-    await video.play();
-    const detector = new BarcodeDetector({ formats: ["qr_code"] });
-    qrScanning = true;
-    const scan = async () => {
-      if (!qrScanning) return;
-      try {
-        const codes = await detector.detect(video);
-        if (codes.length && codes[0].rawValue) {
-          qrScanning = false;
-          await validateStudentQr(codes[0].rawValue);
-          return;
-        }
-      } catch (error) {
-        stopQrCamera();
-        $("#qr-scan-status").textContent = "Não foi possível ler o QR pela câmera. Tente colar o token.";
-        notify(error.message, "error");
-        return;
-      }
-      window.requestAnimationFrame(scan);
-    };
-    window.requestAnimationFrame(scan);
-  } catch (error) {
-    stopQrCamera();
-    $("#qr-scan-status").textContent =
-      "Não foi possível acessar a câmera. Verifique a permissão do navegador ou cole o token abaixo.";
-    notify(error.message, "error");
-  }
-}
-
-async function validateStudentQr(token) {
-  try {
-    const result = await api("/api/student-qr/verify", {
-      method: "POST",
-      body: JSON.stringify({
-        token: token.trim(),
-        enrollment: state.currentStudent.enrollment,
-      }),
-    });
-    state.studentQrToken = token.trim();
-    stopQrCamera();
-    elements.qrScanDialog.close();
-    notify(`Estudante validado: ${result.name}.`);
-    openSignature(state.signatureBook.id, "checkout", state.studentQrToken);
-  } catch (error) {
-    $("#qr-scan-status").textContent = error.message;
-    stopQrCamera();
-    notify(error.message, "error");
-  }
+  $("#checkout-student-name").textContent = state.currentStudent.name;
+  $("#checkout-student-enrollment").textContent = state.currentStudent.enrollment;
+  $("#enrollment-confirmation-input").value = "";
+  elements.enrollmentDialog.showModal();
+  $("#enrollment-confirmation-input").focus();
 }
 
 function resizeCanvas() {
@@ -561,6 +571,9 @@ async function refreshCurrentStudent() {
   const year = state.currentStudent.school_year;
   const record = await api(`/api/students/${encodeURIComponent(enrollment)}?year=${year}`);
   state.currentStudent = { ...state.students.find((student) => student.enrollment === enrollment), ...record };
+  if (state.historyBook) {
+    state.historyBook = state.currentStudent.books.find((book) => book.id === state.historyBook.id);
+  }
   renderStudentDetail();
 }
 
@@ -666,41 +679,33 @@ document.addEventListener("click", (event) => {
   if (!target) return;
   if (target.dataset.action === "detail") openStudent(target.dataset.enrollment);
   if (target.dataset.action === "add-student") openNewStudent();
-  if (target.dataset.action === "sign-checkout") openSignature(target.dataset.book, "checkout");
+  if (target.dataset.action === "sign-checkout") openCheckoutConfirmation(target.dataset.book);
   if (target.dataset.action === "sign-return") openSignature(target.dataset.book, "return");
+  if (target.dataset.action === "book-history") openBookHistory(target.dataset.book);
   if (target.dataset.action === "save-user") saveManagedUser(target.closest("tr"));
 });
 
-elements.qrScanDialog.addEventListener("close", stopQrCamera);
-$("#qr-manual-form").addEventListener("submit", async (event) => {
+$("#enrollment-confirmation-form").addEventListener("submit", (event) => {
   event.preventDefault();
-  await validateStudentQr($("#qr-manual-token").value);
-});
-elements.signatureDialog.addEventListener("close", () => {
-  state.studentQrToken = null;
+  const enrollment = $("#enrollment-confirmation-input").value.trim();
+  if (enrollment !== state.currentStudent.enrollment) {
+    notify("A matrícula informada não corresponde ao estudante selecionado.", "error");
+    $("#enrollment-confirmation-input").focus();
+    return;
+  }
+  elements.enrollmentDialog.close();
+  openSignature(state.signatureBook.id, "checkout", enrollment);
 });
 
 $$("[data-close]").forEach((button) => button.addEventListener("click", () => $(`#${button.dataset.close}`).close()));
 $("#export-term-button").addEventListener("click", () => buildPrintTerm(state.currentStudent));
 $("#export-annual-backup-button").addEventListener("click", exportAnnualBackup);
 $("#detail-year-select").addEventListener("change", (event) => selectStudentYear(Number(event.target.value)));
-$("#reset-student-access-button").addEventListener("click", async () => {
-  if (!state.currentStudent || !window.confirm(`Gerar ou redefinir o acesso QR de ${state.currentStudent.name}?`)) return;
-  const button = $("#reset-student-access-button");
-  button.disabled = true;
-  try {
-    const result = await api(
-      `/api/students/${encodeURIComponent(state.currentStudent.enrollment)}/student-access`,
-      { method: "POST", body: JSON.stringify({}) },
-    );
-    $("#student-temp-password").textContent = result.temporary_password;
-    $("#student-access-dialog").showModal();
-  } catch (error) {
-    notify(error.message, "error");
-  } finally {
-    button.disabled = false;
-  }
+$("#signature-history-button").addEventListener("click", () => {
+  if (state.signatureBook) openBookHistory(state.signatureBook.id);
 });
+$("#cancel-checkout-button").addEventListener("click", () => cancelBookRecord("checkout"));
+$("#cancel-return-button").addEventListener("click", () => cancelBookRecord("return"));
 $("#managed-user-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const userForm = event.currentTarget;
@@ -758,7 +763,7 @@ $("#signature-form").addEventListener("submit", async (event) => {
       method: "PUT",
       body: JSON.stringify({
         signature: elements.canvas.toDataURL("image/png"),
-        student_qr_token: state.studentQrToken,
+        enrollment_confirmation: state.enrollmentConfirmation,
       }),
     });
     elements.signatureDialog.close();

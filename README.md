@@ -13,8 +13,7 @@ acervo/
 ├── repository.py    # Persistência e consultas SQLite
 ├── services.py      # Casos de uso e validações do negócio
 ├── templates/
-│   ├── index.html   # View do servidor
-│   └── student.html # Portal individual do estudante
+│   └── index.html   # Interface do servidor
 └── static/
     ├── app.js       # Interações da interface
     ├── student.js  # Login e QR temporário do estudante
@@ -117,10 +116,9 @@ Para atualizar as imagens após mudanças, execute `docker compose up --build -d
 
 - Cadastre cada estudante com nome, matrícula única e ano (1º, 2º ou 3º).
 - Na tela **Estudantes**, use **Baixar modelo CSV** para obter uma planilha vazia com os cabeçalhos `matricula`, `nome` e `turma`; preencha-a e importe pelo botão **Importar CSV**. A turma pode ser `1`, `1º`, `1°` ou `1º ano` (equivalente para 2º e 3º). Também são aceitos arquivos separados por vírgula ou tabulação e o cabeçalho `matrícula`. Linhas com matrícula já cadastrada, inclusive repetidas no mesmo arquivo, são ignoradas; linhas inválidas são informadas ao final.
-- Abra o termo para registrar a assinatura manuscrita do estudante em cada título entregue.
-- Para habilitar a confirmação por QR, um administrador abre o estudante e usa **Gerar acesso do aluno**. Após conferir presencialmente a identidade, entregue a senha temporária ao estudante por um canal seguro. O estudante acessa `/aluno`, entra com matrícula e senha temporária e cria sua senha pessoal (mínimo de 12 caracteres).
-- No momento da retirada, o estudante entra em `/aluno` e gera um QR Code de curta duração (90 segundos). No detalhe do estudante, o servidor seleciona **Assinar entrega**, escaneia o QR pela câmera ou cola o token e, após a validação, o estudante assina na tela. Cada QR é individual, de uso único e associado à matrícula e ao ano letivo; gerar outro código invalida o anterior. Devoluções continuam sendo registradas pelo servidor sem QR.
-- O administrador pode redefinir o acesso do estudante; a senha temporária é exibida uma única vez. Esse procedimento invalida sessões estudantis e QR Codes anteriores. Oriente o estudante a não compartilhar senha nem capturas do QR.
+- Abra o termo para registrar a assinatura manuscrita do estudante em cada título entregue. Antes da assinatura, solicite a matrícula verbalmente e digite-a para confirmar que corresponde ao cadastro selecionado.
+- Na tela da assinatura ou ao lado de cada livro, abra **Ver histórico e corrigir registro** / **Histórico** para consultar assinaturas, devoluções e correções anteriores. Se uma entrega ou devolução foi registrada por engano ou a assinatura precisa ser refeita, cancele o registro ativo e informe o motivo. O histórico original não é apagado; cada cancelamento também registra data, servidor responsável e justificativa. Para cancelar uma entrega que já tem devolução registrada, cancele primeiro a devolução.
+- O portal do estudante, a autenticação estudantil e a verificação por QR Code estão desativados. A matrícula informada pelo estudante é digitada pelo servidor no modal antes de iniciar a assinatura da entrega. O sistema também valida no servidor se o valor digitado corresponde à matrícula selecionada. Dados de credenciais antigos, se presentes em um banco existente, são preservados sem uso pela aplicação.
 - Na devolução, o servidor registra a assinatura título por título. A devolução só fica disponível depois da entrega.
 - Use **Exportar PDF** e escolha **Salvar como PDF** no diálogo de impressão do navegador. O termo inclui o registro de cada assinatura já feita e os espaços ainda pendentes.
 - Na tela **Estudantes**, use **Exportar backup anual** para reunir em um único PDF todos os termos do ano letivo atual com o status de entrega/devolução vigente. No diálogo de impressão, selecione **Salvar como PDF**; cada termo começa em uma nova página. Estudantes concluídos em anos anteriores, sem termo no ciclo atual, não são incluídos.

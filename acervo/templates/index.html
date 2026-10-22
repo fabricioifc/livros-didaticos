@@ -8,8 +8,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
-  <script src="{{ url_for('static', filename='app.js') }}" defer></script>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v=static_asset_version('styles.css')) }}">
+  <script src="{{ url_for('static', filename='app.js', v=static_asset_version('app.js')) }}" defer></script>
 </head>
 <body>
   <div id="toast-region" class="toast-region" aria-live="polite"></div>
@@ -145,15 +145,14 @@
     <div class="detail-footer"><span><i class="legend-dot legend-dot--issued"></i>Entregue <i class="legend-dot legend-dot--returned"></i>Devolvido</span><button class="button button--secondary" type="button" data-close="student-detail-dialog">Concluir</button></div>
   </dialog>
 
-  <dialog id="qr-scan-dialog" class="dialog dialog--signature">
-    <div class="dialog-heading"><div><span class="eyebrow">VALIDAÇÃO DO ESTUDANTE</span><h2>Escaneie o QR Code</h2><p id="qr-scan-status">Peça ao estudante para gerar um QR Code no celular.</p></div><button class="dialog-close" type="button" data-close="qr-scan-dialog" aria-label="Fechar">×</button></div>
-    <video id="qr-camera" class="qr-camera" playsinline muted hidden></video>
-    <form id="qr-manual-form" class="qr-manual-form">
-      <label class="field-label" for="qr-manual-token">Ou cole o código do estudante</label>
-      <textarea class="text-input" id="qr-manual-token" rows="3" autocomplete="off"></textarea>
-      <button class="button button--secondary" type="submit">Validar código</button>
+  <dialog id="enrollment-confirmation-dialog" class="dialog dialog--form">
+    <form id="enrollment-confirmation-form">
+      <div class="dialog-heading"><div><span class="eyebrow">CONFIRMAÇÃO DA ENTREGA</span><h2>Confirme a matrícula</h2><p>Peça ao estudante que informe a matrícula e digite-a para confirmar a entrega do livro.</p></div><button class="dialog-close" type="button" data-close="enrollment-confirmation-dialog" aria-label="Fechar">×</button></div>
+      <p class="signature-consent"><strong id="checkout-student-name"></strong> · Matrícula cadastrada: <strong id="checkout-student-enrollment"></strong></p>
+      <label class="field-label" for="enrollment-confirmation-input">Matrícula informada pelo estudante</label>
+      <input class="text-input" id="enrollment-confirmation-input" type="text" maxlength="30" autocomplete="off" required>
+      <div class="dialog-actions"><button class="button button--secondary" type="button" data-close="enrollment-confirmation-dialog">Cancelar</button><button class="button button--primary" type="submit">Confirmar matrícula <span>→</span></button></div>
     </form>
-    <div class="dialog-actions"><button class="button button--secondary" type="button" data-close="qr-scan-dialog">Cancelar</button></div>
   </dialog>
 
   <dialog id="signature-dialog" class="dialog dialog--signature">
@@ -162,15 +161,25 @@
       <div class="signature-pad-wrap"><canvas id="signature-canvas" aria-label="Área para desenhar a assinatura"></canvas><span class="signature-placeholder" id="signature-placeholder">Assine aqui com o dedo ou a caneta</span></div>
       <div class="signature-controls"><span>Assinatura manuscrita na tela</span><button class="text-button" type="button" id="clear-signature">Limpar</button></div>
       <p class="signature-consent" id="signature-consent">Ao assinar, o estudante confirma o recebimento deste título e se compromete com as regras de utilização do termo.</p>
+      <button class="text-button signature-history-link" id="signature-history-button" type="button">Ver histórico e corrigir registro</button>
       <div class="dialog-actions"><button class="button button--secondary" type="button" data-close="signature-dialog">Cancelar</button><button class="button button--primary" type="submit">Confirmar assinatura <span>→</span></button></div>
     </form>
   </dialog>
 
-  <dialog id="student-access-dialog" class="dialog dialog--form">
-    <div class="dialog-heading"><div><span class="eyebrow">ACESSO DO ESTUDANTE</span><h2>Senha temporária</h2><p>Entregue-a ao estudante após conferir sua identidade. Ela será exibida somente agora.</p></div><button class="dialog-close" type="button" data-close="student-access-dialog" aria-label="Fechar">×</button></div>
-    <p class="student-temp-password" id="student-temp-password"></p>
-    <p class="signature-consent">Acesse <a href="/aluno" target="_blank" rel="noopener">/aluno</a>, entre com matrícula e senha temporária e crie uma senha pessoal. O reset invalida os QR Codes ainda não utilizados.</p>
-    <div class="dialog-actions"><button class="button button--secondary" type="button" data-close="student-access-dialog">Fechar</button></div>
+  <dialog id="book-history-dialog" class="dialog dialog--history">
+    <div class="dialog-heading"><div><span class="eyebrow">HISTÓRICO DO LIVRO</span><h2 id="book-history-title"></h2><p>Assinaturas e correções registradas, da mais recente para a mais antiga.</p></div><button class="dialog-close" type="button" data-close="book-history-dialog" aria-label="Fechar">×</button></div>
+    <ol class="book-history-list" id="book-history-list"></ol>
+    <section class="history-correction" id="history-correction">
+      <p class="signature-consent">O cancelamento não apaga o histórico. Informe o motivo para registrar a correção.</p>
+      <label class="field-label" id="history-correction-label" for="history-correction-reason">Motivo da correção</label>
+      <textarea class="text-input history-reason" id="history-correction-reason" rows="3" maxlength="500" minlength="5" placeholder="Ex.: assinatura ilegível; será refeita." required></textarea>
+      <div class="dialog-actions history-actions">
+        <button class="button button--secondary" id="cancel-checkout-button" type="button" hidden>Cancelar entrega</button>
+        <button class="button button--secondary" id="cancel-return-button" type="button" hidden>Cancelar devolução</button>
+      </div>
+      <p id="history-action-message" class="history-action-message" role="status" aria-live="polite"></p>
+    </section>
+    <div class="dialog-actions history-close"><button class="button button--secondary" type="button" data-close="book-history-dialog">Fechar</button></div>
   </dialog>
 
   <div id="print-container" class="print-container" aria-hidden="true"></div>
