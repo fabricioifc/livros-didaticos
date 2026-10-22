@@ -16,13 +16,15 @@ class ServiceError(Exception):
         self.status = status
 
 
-def create_user(database_path, email, password):
+def create_user(database_path, email, password, is_admin=False):
     email = normalize_email(email)
     if not is_ifc_email(email):
         raise ValueError("Use um e-mail @ifc.edu.br.")
     if not isinstance(password, str) or len(password) < 12 or len(password) > 128:
         raise ValueError("A senha precisa ter entre 12 e 128 caracteres.")
-    repository.add_user(database_path, email, generate_password_hash(password), now_iso())
+    repository.add_user(
+        database_path, email, generate_password_hash(password), now_iso(), is_admin
+    )
 
 
 def authenticate(database_path, email, password):
@@ -30,9 +32,54 @@ def authenticate(database_path, email, password):
     if not is_ifc_email(email) or not isinstance(password, str):
         raise ServiceError("Informe um e-mail @ifc.edu.br e uma senha.", 400)
     user = repository.find_user(database_path, email)
-    if not user or not check_password_hash(user["password_hash"], password):
+    if (
+        not user
+        or not user["is_active"]
+        or not check_password_hash(user["password_hash"], password)
+    ):
         raise ServiceError("E-mail ou senha incorretos.", 401)
     return user
+
+
+def get_users(database_path):
+    return repository.list_users(database_path)
+
+
+def create_managed_user(database_path, body):
+    email = normalize_email(body.get("email"))
+    password = body.get("password")
+    is_admin = body.get("is_admin", False)
+    if not isinstance(is_admin, bool):
+        raise ServiceError("O perfil de administrador é inválido.", 400)
+    if not is_ifc_email(email):
+        raise ServiceError("Use um e-mail @ifc.edu.br.", 400)
+    if not isinstance(password, str) or len(password) < 12 or len(password) > 128:
+        raise ServiceError("A senha precisa ter entre 12 e 128 caracteres.", 400)
+    try:
+        create_user(database_path, email, password, is_admin)
+    except sqlite3.IntegrityError as error:
+        if "UNIQUE constraint failed: users.email" in str(error):
+            raise ServiceError("Já existe uma conta com esse e-mail.", 409) from error
+        raise
+    return next(user for user in repository.list_users(database_path) if user["email"] == email)
+
+
+def update_managed_user(database_path, target_id, body, current_user_id):
+    is_admin = body.get("is_admin")
+    is_active = body.get("is_active")
+    if not isinstance(is_admin, bool) or not isinstance(is_active, bool):
+        raise ServiceError("Informe o perfil e o status da conta.", 400)
+    if target_id == current_user_id and (not is_admin or not is_active):
+        raise ServiceError("Não é possível remover seu próprio acesso de administrador.", 409)
+    result = repository.update_user(database_path, target_id, is_admin, is_active)
+    errors = {
+        "not_found": ("Conta não encontrada.", 404),
+        "last_admin": ("Não é possível desativar ou rebaixar o último administrador ativo.", 409),
+    }
+    if result:
+        message, status = errors[result]
+        raise ServiceError(message, status)
+    return next(user for user in repository.list_users(database_path) if user["id"] == target_id)
 
 
 def get_students(database_path, query, school_year):

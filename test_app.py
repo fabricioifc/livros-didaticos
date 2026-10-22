@@ -48,6 +48,160 @@ class LibraryAppTest(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 400)
 
+    def test_designated_admin_can_manage_accounts_and_regular_users_cannot(self):
+        database_path = self.app.config["DATABASE_PATH"]
+        create_user(
+            database_path,
+            "fabricio.bizotto@ifc.edu.br",
+            "senha-admin-segura",
+        )
+        admin_client = self.app.test_client()
+        login_response = admin_client.post(
+            "/api/auth/login",
+            json={
+                "email": "fabricio.bizotto@ifc.edu.br",
+                "password": "senha-admin-segura",
+            },
+            headers={
+                "X-CSRF-Token": admin_client.get("/api/auth/session").get_json()[
+                    "csrf_token"
+                ]
+            },
+        )
+        self.assertEqual(login_response.status_code, 200)
+        self.assertTrue(login_response.get_json()["is_admin"])
+        admin_token = login_response.get_json()["csrf_token"]
+        self.assertEqual(
+            admin_client.get("/api/users").status_code,
+            200,
+        )
+        admin_id = next(
+            user["id"]
+            for user in admin_client.get("/api/users").get_json()["users"]
+            if user["email"] == "fabricio.bizotto@ifc.edu.br"
+        )
+        self.login()
+        self.assertEqual(self.client.get("/api/users").status_code, 403)
+
+        created = admin_client.post(
+            "/api/users",
+            json={
+                "email": "novo.servidor@ifc.edu.br",
+                "password": "senha-servidor-segura",
+                "is_admin": False,
+            },
+            headers={"X-CSRF-Token": admin_token},
+        )
+        self.assertEqual(created.status_code, 201)
+        managed_user = created.get_json()
+        self.assertFalse(managed_user["is_admin"])
+        self.assertTrue(managed_user["is_active"])
+
+        promoted = admin_client.patch(
+            f"/api/users/{managed_user['id']}",
+            json={"is_admin": True, "is_active": True},
+            headers={"X-CSRF-Token": admin_token},
+        )
+        self.assertEqual(promoted.status_code, 200)
+        self.assertTrue(promoted.get_json()["is_admin"])
+
+        user_client = self.app.test_client()
+        user_token = user_client.get("/api/auth/session").get_json()["csrf_token"]
+        user_login = user_client.post(
+            "/api/auth/login",
+            json={
+                "email": "novo.servidor@ifc.edu.br",
+                "password": "senha-servidor-segura",
+            },
+            headers={"X-CSRF-Token": user_token},
+        )
+        self.assertTrue(user_login.get_json()["is_admin"])
+        admin_token = user_login.get_json()["csrf_token"]
+        deactivated = user_client.patch(
+            f"/api/users/{managed_user['id']}",
+            json={"is_admin": True, "is_active": False},
+            headers={"X-CSRF-Token": admin_token},
+        )
+        self.assertEqual(deactivated.status_code, 409)
+
+        admin_token = login_response.get_json()["csrf_token"]
+        disabled = admin_client.patch(
+            f"/api/users/{managed_user['id']}",
+            json={"is_admin": True, "is_active": False},
+            headers={"X-CSRF-Token": admin_token},
+        )
+        self.assertEqual(disabled.status_code, 200)
+        self.assertEqual(user_client.get("/api/students").status_code, 401)
+        inactive_client = self.app.test_client()
+        bad_login = inactive_client.post(
+            "/api/auth/login",
+            json={
+                "email": "novo.servidor@ifc.edu.br",
+                "password": "senha-servidor-segura",
+            },
+            headers={
+                "X-CSRF-Token": inactive_client.get("/api/auth/session").get_json()[
+                    "csrf_token"
+                ]
+            },
+        )
+        self.assertEqual(bad_login.status_code, 401)
+
+        self_demote = admin_client.patch(
+            f"/api/users/{admin_id}",
+            json={"is_admin": False, "is_active": True},
+            headers={"X-CSRF-Token": admin_token},
+        )
+        self.assertEqual(self_demote.status_code, 409)
+
+    def test_existing_user_table_is_migrated_and_designated_admin_promoted(self):
+        database_path = Path(self.temp_dir.name) / "legacy-users.db"
+        from werkzeug.security import generate_password_hash
+
+        db = sqlite3.connect(database_path)
+        try:
+            db.execute(
+                """CREATE TABLE users (
+                    id INTEGER PRIMARY KEY,
+                    email TEXT NOT NULL UNIQUE,
+                    password_hash TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                )"""
+            )
+            db.execute(
+                """INSERT INTO users (email, password_hash, created_at)
+                   VALUES (?, ?, ?)""",
+                (
+                    "fabricio.bizotto@ifc.edu.br",
+                    generate_password_hash("senha-admin-segura"),
+                    "2026-01-01T00:00:00+00:00",
+                ),
+            )
+            db.commit()
+        finally:
+            db.close()
+
+        migrated_app = create_app(
+            {
+                "TESTING": True,
+                "SECRET_KEY": "test-only-secret",
+                "DATABASE_PATH": str(database_path),
+                "SCHOOL_YEAR": 2026,
+            }
+        )
+        client = migrated_app.test_client()
+        token = client.get("/api/auth/session").get_json()["csrf_token"]
+        login_response = client.post(
+            "/api/auth/login",
+            json={
+                "email": "fabricio.bizotto@ifc.edu.br",
+                "password": "senha-admin-segura",
+            },
+            headers={"X-CSRF-Token": token},
+        )
+        self.assertEqual(login_response.status_code, 200)
+        self.assertTrue(login_response.get_json()["is_admin"])
+
     def test_student_books_are_grade_specific_and_unique(self):
         self.login()
         token = self.csrf()
@@ -400,8 +554,13 @@ class LibraryAppTest(unittest.TestCase):
         self.assertEqual(page.status_code, 200)
         self.assertIn(b"Importar CSV", page.data)
         self.assertIn(b"Exportar backup anual", page.data)
+        self.assertIn(b"Aviso de Privacidade", page.data)
         self.assertIn(b"/static/styles.css", page.data)
         self.assertIn(b"/static/app.js", page.data)
+        privacy = self.client.get("/privacidade")
+        self.assertEqual(privacy.status_code, 200)
+        self.assertIn("15 a 17 anos".encode(), privacy.data)
+        self.assertIn("controle interno e arquivo".encode(), privacy.data)
         with self.client.get("/static/styles.css") as styles:
             self.assertEqual(styles.status_code, 200)
         with self.client.get("/static/app.js") as script:

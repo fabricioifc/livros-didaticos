@@ -134,11 +134,23 @@ Português e Matemática são específicos da turma e do ano letivo. Os outros 1
 
 O ano letivo é controlado por `SCHOOL_YEAR` (por padrão, o ano corrente). É possível defini-lo explicitamente no ambiente para ajustar o calendário escolar; a mudança para um ano posterior cria os ciclos e promoções faltantes na próxima inicialização do app. Não reduza o ano configurado depois que os ciclos futuros tiverem sido criados.
 
-## Autenticação
+## Autenticação e usuários
 
-O acesso atual usa conta e senha, com senha armazenada em hash e sessão protegida. Contas são provisionadas pelo administrador via `create-user`; não há cadastro público nem verificação automática de domínio. O botão Google permanece desativado: OAuth não está conectado até que o campus configure um provedor OIDC e suas credenciais e URLs de callback. Não publique este servidor diretamente na internet sem configurar esses controles e uma política de backup.
+O acesso usa conta e senha, com senha armazenada em hash e sessão protegida. A conta `fabricio.bizotto@ifc.edu.br` é promovida a administradora na inicialização do banco. Para criá-la no primeiro uso, execute `create-user` e informe esse e-mail; a senha não é criada automaticamente:
+
+```powershell
+docker compose run --rm web python server.py create-user
+```
+
+Administradores veem a seção **Usuários**, podem cadastrar contas `@ifc.edu.br`, promover servidores a administradores e ativar/desativar contas. Contas desativadas não podem entrar e sessões já abertas perdem o acesso na próxima requisição. O sistema impede que o administrador remova o próprio acesso pela interface ou que a última conta administradora ativa seja desativada/rebaixada. Não há cadastro público nem recuperação de senha implementados.
+
+O botão Google permanece desativado: OAuth não está conectado até que o campus configure um provedor OIDC e suas credenciais e URLs de callback. Não publique este servidor diretamente na internet sem configurar esses controles e uma política de backup.
 
 As assinaturas manuscritas são armazenadas como imagens junto às datas e ao registro do servidor. Validade jurídica e requisitos de assinatura eletrônica devem ser avaliados pelo IFC antes do uso oficial.
+
+## Privacidade
+
+O aviso de privacidade está disponível publicamente em `/privacidade` e pelo link na tela de acesso e no rodapé da aplicação. Ele descreve os dados arquivados para controle interno, quem pode acessá-los, o contexto de estudantes adolescentes, serviços técnicos envolvidos e direitos dos titulares. Antes de usar dados reais em produção, o IFC deve validar o texto, definir e registrar a base legal e o prazo de retenção e inserir o canal institucional atualizado do encarregado de dados pessoais.
 
 ## Verificações
 

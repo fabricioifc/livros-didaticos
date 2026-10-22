@@ -29,7 +29,9 @@ def initialize_db(database_path, school_year):
                 id INTEGER PRIMARY KEY,
                 email TEXT NOT NULL UNIQUE,
                 password_hash TEXT NOT NULL,
-                created_at TEXT NOT NULL
+                created_at TEXT NOT NULL,
+                is_admin INTEGER NOT NULL DEFAULT 0 CHECK (is_admin IN (0, 1)),
+                is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1))
             );
             CREATE TABLE IF NOT EXISTS students (
                 enrollment TEXT PRIMARY KEY,
@@ -67,6 +69,21 @@ def initialize_db(database_path, school_year):
                     REFERENCES book_signatures(enrollment, book_id) ON DELETE CASCADE
             );
             """
+        )
+        user_columns = {
+            row["name"] for row in db.execute("PRAGMA table_info(users)").fetchall()
+        }
+        if "is_admin" not in user_columns:
+            db.execute(
+                "ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0"
+            )
+        if "is_active" not in user_columns:
+            db.execute(
+                "ALTER TABLE users ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1"
+            )
+        db.execute(
+            "UPDATE users SET is_admin = 1 WHERE lower(email) = ?",
+            ("fabricio.bizotto@ifc.edu.br",),
         )
         _migrate_legacy_book_ids(db)
         _initialize_school_years(db, school_year)
@@ -237,18 +254,65 @@ def _initialize_school_years(db, current_year):
 def find_user(database_path, email):
     with database(database_path) as db:
         row = db.execute(
-            "SELECT id, email, password_hash FROM users WHERE email = ?", (email,)
+            """SELECT id, email, password_hash, is_admin, is_active
+               FROM users WHERE email = ?""",
+            (email,),
         ).fetchone()
     return dict(row) if row else None
 
 
-def add_user(database_path, email, password_hash, created_at):
+def find_user_by_id(database_path, user_id):
+    with database(database_path) as db:
+        row = db.execute(
+            """SELECT id, email, is_admin, is_active FROM users
+               WHERE id = ?""",
+            (user_id,),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def add_user(database_path, email, password_hash, created_at, is_admin=False):
     with database(database_path) as db:
         cursor = db.execute(
-            "INSERT INTO users (email, password_hash, created_at) VALUES (?, ?, ?)",
-            (email, password_hash, created_at),
+            """INSERT INTO users (email, password_hash, created_at, is_admin, is_active)
+               VALUES (?, ?, ?, ?, 1)""",
+            (
+                email,
+                password_hash,
+                created_at,
+                int(is_admin or email.lower() == "fabricio.bizotto@ifc.edu.br"),
+            ),
         )
     return cursor.lastrowid
+
+
+def list_users(database_path):
+    with database(database_path) as db:
+        rows = db.execute(
+            """SELECT id, email, is_admin, is_active, created_at
+               FROM users ORDER BY email COLLATE NOCASE"""
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def update_user(database_path, user_id, is_admin, is_active):
+    with database(database_path) as db:
+        user = db.execute(
+            "SELECT id, is_admin, is_active FROM users WHERE id = ?", (user_id,)
+        ).fetchone()
+        if not user:
+            return "not_found"
+        if user["is_admin"] and (not is_admin or not is_active):
+            active_admins = db.execute(
+                "SELECT COUNT(*) FROM users WHERE is_admin = 1 AND is_active = 1"
+            ).fetchone()[0]
+            if active_admins <= 1:
+                return "last_admin"
+        db.execute(
+            "UPDATE users SET is_admin = ?, is_active = ? WHERE id = ?",
+            (int(is_admin), int(is_active), user_id),
+        )
+    return None
 
 
 def add_student(database_path, enrollment, name, grade, created_at, school_year):

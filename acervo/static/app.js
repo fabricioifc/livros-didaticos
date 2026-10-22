@@ -3,6 +3,8 @@
 const state = {
   csrf: "",
   email: "",
+  isAdmin: false,
+  users: [],
   students: [],
   view: "dashboard",
   grade: "all",
@@ -87,11 +89,14 @@ function showAuth() {
   prepareLogin();
 }
 
-function showApplication(email) {
+function showApplication(email, isAdmin = false) {
   state.email = email;
+  state.isAdmin = isAdmin;
   elements.authScreen.hidden = true;
   elements.application.hidden = false;
+  $("#users-nav-item").hidden = !isAdmin;
   $("#user-email").textContent = email;
+  $("#user-role").textContent = isAdmin ? "Administrador" : "Servidor";
   const initials = email.split("@")[0].split(/[._-]/).slice(0, 2).map((part) => part[0]?.toUpperCase() || "").join("");
   $("#user-avatar").textContent = initials;
   $("#top-avatar").textContent = initials;
@@ -173,12 +178,68 @@ function renderStudents() {
 }
 
 function setView(view) {
+  if (view === "users" && !state.isAdmin) return;
   state.view = view;
   $("#dashboard-view").hidden = view !== "dashboard";
   $("#students-view").hidden = view !== "students";
-  $("#breadcrumb-current").textContent = view === "dashboard" ? "Visão geral" : "Estudantes";
+  $("#users-view").hidden = view !== "users";
+  $("#breadcrumb-current").textContent = {
+    dashboard: "Visão geral",
+    students: "Estudantes",
+    users: "Usuários",
+  }[view] || "Visão geral";
   $$(".nav-item").forEach((button) => button.classList.toggle("is-active", button.dataset.view === view));
   $("#sidebar").classList.remove("is-open");
+  if (view === "users") loadManagedUsers();
+}
+
+function renderManagedUsers() {
+  $("#managed-users-table").innerHTML = state.users.map((user) => `
+    <tr data-user-id="${user.id}">
+      <td class="mono-cell">${escapeHtml(user.email)}</td>
+      <td><select class="text-input user-role-select" aria-label="Perfil de ${escapeHtml(user.email)}">
+        <option value="false" ${user.is_admin ? "" : "selected"}>Servidor</option>
+        <option value="true" ${user.is_admin ? "selected" : ""}>Administrador</option>
+      </select></td>
+      <td><select class="text-input user-status-select" aria-label="Status de ${escapeHtml(user.email)}">
+        <option value="true" ${user.is_active ? "selected" : ""}>Ativo</option>
+        <option value="false" ${user.is_active ? "" : "selected"}>Desativado</option>
+      </select></td>
+      <td><button class="button button--secondary user-save-button" data-action="save-user" type="button">Salvar</button></td>
+    </tr>`).join("");
+  $("#managed-users-empty").hidden = state.users.length > 0;
+  $("#managed-users-table").closest(".table-scroll").hidden = state.users.length === 0;
+}
+
+async function loadManagedUsers() {
+  try {
+    const result = await api("/api/users");
+    state.users = result.users;
+    renderManagedUsers();
+  } catch (error) {
+    notify(error.message, "error");
+    if (error.message.includes("administradores")) setView("dashboard");
+  }
+}
+
+async function saveManagedUser(row) {
+  const button = $(".user-save-button", row);
+  button.disabled = true;
+  try {
+    await api(`/api/users/${row.dataset.userId}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        is_admin: $(".user-role-select", row).value === "true",
+        is_active: $(".user-status-select", row).value === "true",
+      }),
+    });
+    notify("Permissões do usuário atualizadas.");
+    await loadManagedUsers();
+  } catch (error) {
+    notify(error.message, "error");
+  } finally {
+    button.disabled = false;
+  }
 }
 
 async function openStudent(enrollment) {
@@ -418,7 +479,7 @@ elements.authForm.addEventListener("submit", async (event) => {
       method: "POST",
       body: JSON.stringify({ email, password }),
     });
-    showApplication(result.email);
+    showApplication(result.email, result.is_admin);
   } catch (error) {
     notify(error.message, "error");
   } finally {
@@ -512,12 +573,48 @@ document.addEventListener("click", (event) => {
   if (target.dataset.action === "add-student") openNewStudent();
   if (target.dataset.action === "sign-checkout") openSignature(target.dataset.book, "checkout");
   if (target.dataset.action === "sign-return") openSignature(target.dataset.book, "return");
+  if (target.dataset.action === "save-user") saveManagedUser(target.closest("tr"));
 });
 
 $$("[data-close]").forEach((button) => button.addEventListener("click", () => $(`#${button.dataset.close}`).close()));
 $("#export-term-button").addEventListener("click", () => buildPrintTerm(state.currentStudent));
 $("#export-annual-backup-button").addEventListener("click", exportAnnualBackup);
 $("#detail-year-select").addEventListener("change", (event) => selectStudentYear(Number(event.target.value)));
+$("#managed-user-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const userForm = event.currentTarget;
+  const button = $("#managed-user-submit");
+  button.disabled = true;
+  try {
+    const form = new FormData(userForm);
+    await api("/api/users", {
+      method: "POST",
+      body: JSON.stringify({
+        email: form.get("email"),
+        password: form.get("password"),
+        is_admin: form.get("is_admin") === "on",
+      }),
+    });
+    userForm.reset();
+    notify("Usuário criado com sucesso.");
+    await loadManagedUsers();
+  } catch (error) {
+    notify(error.message, "error");
+  } finally {
+    button.disabled = false;
+  }
+});
+$$("[data-toggle-password]").forEach((button) => {
+  button.addEventListener("click", () => {
+    const input = $(`#${button.dataset.togglePassword}`);
+    const showing = input.type === "password";
+    input.type = showing ? "text" : "password";
+    button.textContent = showing ? "Ocultar" : "Mostrar";
+    button.setAttribute("aria-label", showing ? "Ocultar senha" : "Mostrar senha");
+    button.setAttribute("aria-pressed", String(showing));
+    input.focus();
+  });
+});
 $("#clear-signature").addEventListener("click", clearCanvas);
 elements.canvas.addEventListener("pointerdown", startDrawing);
 elements.canvas.addEventListener("pointermove", draw);
@@ -554,7 +651,7 @@ async function initialize() {
   prepareLogin();
   try {
     const session = await api("/api/auth/session");
-    if (session.authenticated) showApplication(session.email);
+    if (session.authenticated) showApplication(session.email, session.is_admin);
   } catch (error) {
     notify(error.message, "error");
   }

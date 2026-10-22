@@ -35,7 +35,7 @@
           <label class="field-label" for="email">E-mail institucional</label>
           <div class="input-wrap"><span class="input-icon">@</span><input id="email" name="email" type="email" placeholder="nome@ifc.edu.br" autocomplete="username" required></div>
           <label class="field-label" for="password">Senha</label>
-          <div class="input-wrap"><span class="input-icon input-icon--lock"></span><input id="password" name="password" type="password" placeholder="Sua senha" autocomplete="current-password" required></div>
+          <div class="input-wrap"><span class="input-icon input-icon--lock"></span><input id="password" name="password" type="password" placeholder="Sua senha" autocomplete="current-password" required><button class="password-toggle" type="button" data-toggle-password="password" aria-label="Mostrar senha" aria-pressed="false">Mostrar</button></div>
           <button class="button button--primary button--wide" type="submit" id="auth-submit">Entrar na plataforma <span aria-hidden="true">→</span></button>
         </form>
         <div class="auth-divider"><span>ou</span></div>
@@ -44,6 +44,7 @@
         </button>
         <p class="auth-switch">Primeiro acesso? Solicite uma conta ao administrador do sistema.</p>
         <p class="auth-note"><span class="secure-dot"></span> Acesso exclusivo para servidores do IFC</p>
+        <a class="privacy-link" href="{{ url_for('main.privacy_notice') }}" target="_blank" rel="noopener">Aviso de Privacidade</a>
       </div>
     </section>
   </main>
@@ -56,12 +57,13 @@
       <nav class="main-nav" aria-label="Navegação principal">
         <button class="nav-item is-active" data-view="dashboard"><span class="nav-icon nav-icon--grid"></span> Visão geral</button>
         <button class="nav-item" data-view="students"><span class="nav-icon nav-icon--users"></span> Estudantes <span class="nav-count" id="nav-student-count">0</span></button>
+        <button class="nav-item" data-view="users" id="users-nav-item" hidden><span class="nav-icon nav-icon--users"></span> Usuários</button>
       </nav>
       <div class="sidebar-bottom">
         <div class="help-card"><span class="help-spark">✳</span><strong>Precisa de ajuda?</strong><p>Consulte a equipe de apoio do campus.</p></div>
         <div class="user-card">
           <div class="avatar" id="user-avatar">IF</div>
-          <div class="user-card__identity"><strong id="user-email">servidor@ifc.edu.br</strong><span>Servidor</span></div>
+          <div class="user-card__identity"><strong id="user-email">servidor@ifc.edu.br</strong><span id="user-role">Servidor</span></div>
           <button class="icon-button logout-button" id="logout-button" aria-label="Sair da conta" title="Sair"><span class="logout-icon"></span></button>
         </div>
       </div>
@@ -92,7 +94,7 @@
           <div class="empty-state" id="dashboard-empty" hidden><div class="empty-illustration">✳</div><strong>Nenhum estudante por aqui</strong><span>Cadastre um estudante para começar a registrar as entregas.</span><button class="button button--secondary" data-action="add-student">Cadastrar estudante</button></div>
           <div class="table-footer"><span id="dashboard-count">0 estudantes</span><span>Atualizado em tempo real</span></div>
         </div>
-        <footer class="app-footer"><span>Acervo IFC · Campus Fraiburgo</span><span>Termo de compromisso · <span class="school-year-footer"></span></span></footer>
+        <footer class="app-footer"><span>Acervo IFC · Campus Fraiburgo · <a class="privacy-link" href="{{ url_for('main.privacy_notice') }}" target="_blank" rel="noopener">Aviso de Privacidade</a></span><span>Termo de compromisso · <span class="school-year-footer"></span></span></footer>
       </section>
 
       <section class="view view--students" id="students-view" hidden>
@@ -103,7 +105,26 @@
           <div class="empty-state" id="students-empty" hidden><div class="empty-illustration">✳</div><strong>Nenhum resultado encontrado</strong><span>Experimente outro nome, matrícula ou turma.</span></div>
           <div class="table-footer"><span id="students-count">0 estudantes</span><span>Atualizado em tempo real</span></div>
         </div>
-        <footer class="app-footer"><span>Acervo IFC · Campus Fraiburgo</span><span>Termo de compromisso · <span class="school-year-footer"></span></span></footer>
+        <footer class="app-footer"><span>Acervo IFC · Campus Fraiburgo · <a class="privacy-link" href="{{ url_for('main.privacy_notice') }}" target="_blank" rel="noopener">Aviso de Privacidade</a></span><span>Termo de compromisso · <span class="school-year-footer"></span></span></footer>
+      </section>
+
+      <section class="view view--users" id="users-view" hidden>
+        <div class="page-heading">
+          <div><span class="eyebrow">ADMINISTRAÇÃO</span><h1>Usuários</h1><p>Gerencie contas de servidores e permissões de acesso.</p></div>
+        </div>
+        <div class="content-card user-management-card">
+          <form id="managed-user-form" class="managed-user-form">
+            <div><label class="field-label" for="managed-user-email">E-mail institucional</label><input class="text-input" id="managed-user-email" name="email" type="email" placeholder="nome@ifc.edu.br" required></div>
+            <div><label class="field-label" for="managed-user-password">Senha inicial</label><div class="password-field"><input class="text-input" id="managed-user-password" name="password" type="password" minlength="12" maxlength="128" autocomplete="new-password" required><button class="password-toggle password-toggle--field" type="button" data-toggle-password="managed-user-password" aria-label="Mostrar senha" aria-pressed="false">Mostrar</button></div></div>
+            <label class="managed-user-admin"><input id="managed-user-admin" name="is_admin" type="checkbox"> Administrador</label>
+            <button class="button button--primary" id="managed-user-submit" type="submit">Criar usuário</button>
+          </form>
+        </div>
+        <div class="content-card user-management-card">
+          <div class="card-heading"><div><h2>Contas cadastradas</h2><p>Desativar uma conta encerra o acesso em todas as sessões.</p></div></div>
+          <div class="table-scroll"><table><thead><tr><th>E-MAIL</th><th>PERFIL</th><th>STATUS</th><th></th></tr></thead><tbody id="managed-users-table"></tbody></table></div>
+          <div class="empty-state" id="managed-users-empty" hidden><strong>Nenhum usuário cadastrado</strong></div>
+        </div>
       </section>
     </main>
   </div>

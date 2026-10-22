@@ -26,7 +26,26 @@ def login_required(view):
     def wrapped(*args, **kwargs):
         if "user_id" not in session:
             return json_error("Faça login para continuar.", 401)
-        g.user_email = session["email"]
+        user = services.repository.find_user_by_id(
+            current_app.config["DATABASE_PATH"], session["user_id"]
+        )
+        if not user or not user["is_active"]:
+            session.clear()
+            return json_error("Sua conta está desativada. Fale com um administrador.", 401)
+        g.user_id = user["id"]
+        g.user_email = user["email"]
+        g.user_is_admin = bool(user["is_admin"])
+        return view(*args, **kwargs)
+
+    return wrapped
+
+
+def admin_required(view):
+    @login_required
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if not g.user_is_admin:
+            return json_error("Acesso restrito a administradores.", 403)
         return view(*args, **kwargs)
 
     return wrapped
@@ -44,6 +63,11 @@ def handle_service_error(error):
 @main.get("/")
 def index():
     return render_template("index.html")
+
+
+@main.get("/privacidade")
+def privacy_notice():
+    return render_template("privacy.html")
 
 
 @main.post("/api/auth/login")
@@ -65,7 +89,13 @@ def login():
     session["user_id"] = user["id"]
     session["email"] = user["email"]
     session["csrf_token"] = secrets.token_urlsafe(32)
-    return jsonify({"email": user["email"], "csrf_token": session["csrf_token"]})
+    return jsonify(
+        {
+            "email": user["email"],
+            "is_admin": bool(user["is_admin"]),
+            "csrf_token": session["csrf_token"],
+        }
+    )
 
 
 @main.get("/api/auth/session")
@@ -73,8 +103,20 @@ def auth_session():
     if "user_id" not in session:
         session["csrf_token"] = secrets.token_urlsafe(32)
         return jsonify({"authenticated": False, "csrf_token": session["csrf_token"]})
+    user = services.repository.find_user_by_id(
+        current_app.config["DATABASE_PATH"], session["user_id"]
+    )
+    if not user or not user["is_active"]:
+        session.clear()
+        session["csrf_token"] = secrets.token_urlsafe(32)
+        return jsonify({"authenticated": False, "csrf_token": session["csrf_token"]})
     return jsonify(
-        {"authenticated": True, "email": session["email"], "csrf_token": session["csrf_token"]}
+        {
+            "authenticated": True,
+            "email": user["email"],
+            "is_admin": bool(user["is_admin"]),
+            "csrf_token": session["csrf_token"],
+        }
     )
 
 
@@ -86,6 +128,45 @@ def logout():
         return error
     session.clear()
     return jsonify({"ok": True})
+
+
+@main.get("/api/users")
+@admin_required
+def list_users():
+    return jsonify({"users": services.get_users(current_app.config["DATABASE_PATH"])})
+
+
+@main.post("/api/users")
+@admin_required
+def create_managed_user():
+    error = csrf_error()
+    if error:
+        return error
+    try:
+        user = services.create_managed_user(
+            current_app.config["DATABASE_PATH"], request_body()
+        )
+    except services.ServiceError as error:
+        return handle_service_error(error)
+    return jsonify(user), 201
+
+
+@main.patch("/api/users/<int:user_id>")
+@admin_required
+def update_managed_user(user_id):
+    error = csrf_error()
+    if error:
+        return error
+    try:
+        user = services.update_managed_user(
+            current_app.config["DATABASE_PATH"],
+            user_id,
+            request_body(),
+            g.user_id,
+        )
+    except services.ServiceError as error:
+        return handle_service_error(error)
+    return jsonify(user)
 
 
 @main.get("/api/students")

@@ -48,6 +48,13 @@ button { cursor: pointer; }
 .input-wrap { position: relative; }
 .input-wrap input, .text-input { width: 100%; height: 47px; padding: 0 14px; border: 1px solid #e3e8e4; border-radius: 7px; outline: none; background: #fff; color: var(--ink); transition: border .16s, box-shadow .16s; }
 .input-wrap input { padding-left: 43px; }
+.input-wrap input[type="password"], .input-wrap input[type="text"] { padding-right: 76px; }
+.password-field { position: relative; }
+.password-field .text-input { padding-right: 76px; }
+.password-toggle { position: absolute; z-index: 1; top: 50%; right: 9px; padding: 5px 6px; border: 0; border-radius: 4px; background: transparent; color: #52715d; font-size: 10px; font-weight: 600; transform: translateY(-50%); }
+.password-toggle:hover { background: #edf4ef; }
+.password-toggle:focus-visible { outline: 2px solid #71927d; outline-offset: 1px; }
+.password-toggle--field { right: 8px; }
 .input-wrap input:focus, .text-input:focus { border-color: #71927d; box-shadow: 0 0 0 3px rgba(32, 98, 66, .09); }
 .input-wrap input::placeholder, .text-input::placeholder { color: #a0a9a3; }
 .input-icon { position: absolute; top: 50%; left: 15px; transform: translateY(-50%); color: #7f9185; font-size: 16px; }
@@ -70,6 +77,8 @@ button { cursor: pointer; }
 .auth-switch { margin: 21px 0 0; text-align: center; color: #8b948e; font-size: 11px; }
 .auth-switch button { padding: 3px 4px; border: 0; background: transparent; color: var(--green); font-weight: 700; }
 .auth-note { margin-top: 40px; display: flex; align-items: center; justify-content: center; gap: 8px; color: #929b95; font-size: 10px; }
+.privacy-link { color: #52715d; font-size: 10px; }
+.auth-card > .privacy-link { display: block; margin-top: 12px; text-align: center; }
 .secure-dot, .status-dot, .campus-dot { width: 7px; height: 7px; border-radius: 50%; background: #5b9a69; }
 
 .application { min-height: 100vh; }
@@ -188,6 +197,14 @@ th:first-child, td:first-child { padding-left: 2px; }
 .all-students-card { padding: 0 20px; }
 .table-toolbar--students { margin-top: 0; padding: 15px 0 13px; }
 .all-students-card th { height: 37px; }
+.user-management-card { margin-bottom: 18px; padding: 20px; }
+.managed-user-form { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr) auto auto; align-items: end; gap: 14px; }
+.managed-user-form .field-label { margin-top: 0; }
+.managed-user-form .text-input, .user-management-card .text-input { height: 40px; }
+.managed-user-admin { display: flex; align-items: center; gap: 7px; padding-bottom: 12px; color: #536158; font-size: 11px; white-space: nowrap; }
+.user-save-button { min-height: 34px; }
+.user-management-card th, .user-management-card td { padding: 8px 12px; }
+.user-role-select, .user-status-select { max-width: 180px; }
 
 .dialog { max-height: min(90vh, 780px); padding: 0; border: 1px solid #e9ede9; border-radius: 10px; background: #fff; color: var(--ink); box-shadow: 0 24px 80px rgba(27, 40, 31, .19); }
 .dialog::backdrop { background: rgba(22, 35, 27, .34); backdrop-filter: blur(2px); }
@@ -311,6 +328,8 @@ th:first-child, td:first-child { padding-left: 2px; }
   .page-heading .button { min-height: 38px; padding: 0 10px; font-size: 10px; }
   .page-heading__actions { gap: 6px; }
   .page-heading--students { align-items: flex-start; flex-direction: column; }
+  .managed-user-form { grid-template-columns: 1fr; gap: 8px; }
+  .managed-user-admin { padding: 6px 0; }
   .metrics-grid { gap: 9px; }
   .metric-card { min-height: 110px; padding: 13px; }
   .metric-top { gap: 4px; font-size: 9px; }
