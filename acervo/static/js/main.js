@@ -8,6 +8,7 @@ import { bindHistory, openBookHistory } from "./history.js";
 import { bindSignature, openSignature } from "./signature.js";
 import { bindPrint } from "./print.js";
 import { bindAdmin, saveManagedUser, toggleCourse } from "./admin.js";
+import { bindTheme } from "./theme.js";
 
 function bindGlobalActions() {
   document.addEventListener("click", (event) => {
@@ -32,6 +33,7 @@ async function initialize() {
   bindSignature();
   bindPrint();
   bindAdmin();
+  bindTheme();
   bindGlobalActions();
   prepareLogin();
   try {

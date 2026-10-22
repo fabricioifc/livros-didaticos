@@ -8,6 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="{{ url_for('static', filename='theme-init.js', v=static_asset_version('theme-init.js')) }}"></script>
   <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v=static_asset_version('styles.css')) }}">
   <script type="importmap">{{ static_import_map() | tojson }}</script>
   <script type="module" src="{{ url_for('static', filename='js/main.js', v=static_asset_version('js/main.js')) }}"></script>
@@ -59,6 +60,7 @@
         <button class="nav-item is-active" data-view="dashboard"><span class="nav-icon nav-icon--grid"></span> Visão geral</button>
         <button class="nav-item" data-view="students"><span class="nav-icon nav-icon--users"></span> Estudantes <span class="nav-count" id="nav-student-count">0</span></button>
         <button class="nav-item" data-view="users" id="users-nav-item" hidden><span class="nav-icon nav-icon--users"></span> Administração</button>
+        <button class="nav-item" data-view="settings"><span class="nav-icon nav-icon--settings"></span> Configurações</button>
       </nav>
       <div class="sidebar-bottom">
         <div class="help-card"><span class="help-spark">✳</span><strong>Precisa de ajuda?</strong><p>Consulte a equipe de apoio do campus.</p></div>
@@ -154,6 +156,20 @@
           <div class="table-scroll"><table><thead><tr><th>E-MAIL</th><th>PERFIL</th><th>STATUS</th><th></th></tr></thead><tbody id="managed-users-table"></tbody></table></div>
           <div class="empty-state" id="managed-users-empty" hidden><strong>Nenhum usuário cadastrado</strong></div>
         </div>
+        </div>
+      </section>
+
+      <section class="view view--settings" id="settings-view" hidden>
+        <div class="page-heading">
+          <div><span class="eyebrow">PREFERÊNCIAS</span><h1>Configurações</h1><p>Ajuste a aparência da plataforma neste dispositivo.</p></div>
+        </div>
+        <div class="content-card user-management-card">
+          <div class="card-heading"><div><h2>Tema</h2><p>No modo automático, a plataforma segue o tema claro ou escuro do navegador.</p></div></div>
+          <div class="theme-options" role="radiogroup" aria-label="Tema da interface">
+            <label class="theme-option"><input type="radio" name="theme" value="auto"><span class="theme-swatch theme-swatch--auto" aria-hidden="true"></span><strong>Automático</strong><small>Seguir o navegador</small></label>
+            <label class="theme-option"><input type="radio" name="theme" value="light"><span class="theme-swatch theme-swatch--light" aria-hidden="true"></span><strong>Claro</strong><small>Fundo claro</small></label>
+            <label class="theme-option"><input type="radio" name="theme" value="dark"><span class="theme-swatch theme-swatch--dark" aria-hidden="true"></span><strong>Escuro</strong><small>Fundo escuro</small></label>
+          </div>
         </div>
       </section>
     </main>

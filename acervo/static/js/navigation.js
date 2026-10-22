@@ -33,10 +33,12 @@ export function setView(view) {
   $("#dashboard-view").hidden = view !== "dashboard";
   $("#students-view").hidden = view !== "students";
   $("#users-view").hidden = view !== "users";
+  $("#settings-view").hidden = view !== "settings";
   $("#breadcrumb-current").textContent = {
     dashboard: "Visão geral",
     students: "Estudantes",
     users: "Administração",
+    settings: "Configurações",
   }[view] || "Visão geral";
   $$(".nav-item").forEach((button) => button.classList.toggle("is-active", button.dataset.view === view));
   if (window.matchMedia("(max-width: 760px)").matches) setMenuExpanded(false);
