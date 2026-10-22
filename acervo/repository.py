@@ -172,6 +172,24 @@ def update_school_year(database_path, school_year):
     return None
 
 
+def reset_dev_students(database_path, school_year, students):
+    with database(database_path) as db:
+        db.execute("BEGIN IMMEDIATE")
+        db.execute("DELETE FROM students")
+        db.execute(
+            """INSERT INTO application_settings (key, value) VALUES ('school_year', ?)
+               ON CONFLICT(key) DO UPDATE SET value = excluded.value""",
+            (str(school_year),),
+        )
+        for enrollment, name, grade, created_at in students:
+            db.execute(
+                """INSERT INTO students (enrollment, name, grade, created_at)
+                   VALUES (?, ?, ?, ?)""",
+                (enrollment, name, grade, created_at),
+            )
+            _insert_school_year(db, enrollment, school_year, grade)
+
+
 def _migrate_legacy_book_ids(db):
     rows = db.execute(
         """SELECT enrollment, book_id, issue_year FROM book_signatures

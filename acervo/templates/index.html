@@ -141,7 +141,7 @@
     <form id="student-form" method="dialog">
       <div class="dialog-heading"><div><span class="eyebrow">CADASTRO</span><h2 id="student-dialog-title">Adicionar estudante</h2><p>Os dados identificam o termo de compromisso do aluno.</p></div><button class="dialog-close" type="button" data-close="student-dialog" aria-label="Fechar">×</button></div>
       <label class="field-label" for="student-name">Nome completo</label><input class="text-input" id="student-name" name="name" maxlength="150" placeholder="Nome do estudante" required>
-      <div class="form-row"><div><label class="field-label" for="student-enrollment">Matrícula</label><input class="text-input" id="student-enrollment" name="enrollment" maxlength="30" placeholder="Ex.: 202612345" required></div><div><label class="field-label" for="student-grade">Turma</label><select class="text-input" id="student-grade" name="grade" required><option value="" disabled selected>Selecione</option><option value="1º">1º ano</option><option value="2º">2º ano</option><option value="3º">3º ano</option></select></div></div>
+      <div class="form-row"><div><label class="field-label" for="student-enrollment">Matrícula</label><input class="text-input" id="student-enrollment" name="enrollment" type="text" inputmode="numeric" pattern="[0-9]{10}" minlength="10" maxlength="10" title="Informe os 10 números da matrícula." placeholder="Ex.: 2026304710" required></div><div><label class="field-label" for="student-grade">Turma</label><select class="text-input" id="student-grade" name="grade" required><option value="" disabled selected>Selecione</option><option value="1º">1º ano</option><option value="2º">2º ano</option><option value="3º">3º ano</option></select></div></div>
       <div class="dialog-actions"><button class="button button--secondary" type="button" data-close="student-dialog">Cancelar</button><button class="button button--primary" id="student-submit" type="submit">Salvar estudante <span>→</span></button></div>
     </form>
   </dialog>
@@ -172,7 +172,7 @@
       <ul id="checkout-selected-books" class="checkout-book-list"></ul>
       <p class="signature-consent"><strong id="checkout-student-name"></strong> · Matrícula cadastrada: <strong id="checkout-student-enrollment"></strong></p>
       <label class="field-label" for="enrollment-confirmation-input">Matrícula informada pelo estudante</label>
-      <input class="text-input" id="enrollment-confirmation-input" type="text" maxlength="30" autocomplete="off" required>
+      <input class="text-input" id="enrollment-confirmation-input" type="text" inputmode="numeric" pattern="[0-9]{10}" minlength="10" maxlength="10" autocomplete="off" required>
       <div class="dialog-actions"><button class="button button--secondary" type="button" data-close="enrollment-confirmation-dialog">Cancelar</button><button class="button button--primary" type="submit">Confirmar matrícula <span>→</span></button></div>
     </form>
   </dialog>

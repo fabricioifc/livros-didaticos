@@ -7,7 +7,7 @@ services:
     entrypoint: ["/bin/sh", "-c"]
     command: ["touch /data/livros.db && chown app:app /data /data/livros.db"]
     volumes:
-      - ./data:/data
+      - ./data-dev:/data
     restart: "no"
   web:
     build:
@@ -16,11 +16,11 @@ services:
     restart: unless-stopped
     environment:
       SECRET_KEY: local-dev-only-change-me
+      APP_ENV: development
       DATABASE_PATH: /data/livros.db
       PORT: "5000"
       COOKIE_SECURE: "false"
       FLASK_DEBUG: "1"
-      SCHOOL_YEAR: ${SCHOOL_YEAR:-}
     depends_on:
       database-init:
         condition: service_completed_successfully
@@ -39,5 +39,5 @@ services:
     volumes:
       - ./server.py:/app/server.py
       - ./acervo:/app/acervo
-      - ./data:/data
+      - ./data-dev:/data
     init: true

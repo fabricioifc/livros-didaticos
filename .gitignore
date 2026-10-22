@@ -8,3 +8,4 @@
 /livros.db*
 __pycache__/
 data/
+data-dev/

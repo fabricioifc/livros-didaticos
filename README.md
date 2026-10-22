@@ -44,7 +44,7 @@ São fornecidas configurações independentes para desenvolvimento e produção.
 
 ### Desenvolvimento
 
-O modo dev ativa a recarga automática do Flask, monta o código-fonte no container e espelha `data/livros.db` do host em `/data/livros.db` dentro do container. O arquivo e a pasta são criados automaticamente na primeira inicialização; um serviço inicializador prepara permissões para o usuário não-root da aplicação. O cookie HTTPS é desativado somente para uso local.
+O modo dev ativa a recarga automática do Flask, monta o código-fonte no container e usa o banco isolado `data-dev/livros.db` do host. A produção continua usando `data/livros.db`, evitando que testes ou resets de desenvolvimento alterem dados reais. O arquivo e a pasta são criados automaticamente na primeira inicialização; um serviço inicializador prepara permissões para o usuário não-root da aplicação. O cookie HTTPS é desativado somente para uso local.
 
 ```powershell
 docker compose -f docker-compose.dev.yml up --build
@@ -56,7 +56,13 @@ Acesse `http://localhost:5000`. Para criar a conta de servidor em outro terminal
 docker compose -f docker-compose.dev.yml run --rm web python server.py create-user
 ```
 
-Encerre com `Ctrl+C`; use `docker compose -f docker-compose.dev.yml down` para parar o serviço. Os dados ficam no arquivo `data\livros.db` do host e continuam disponíveis depois de remover ou recriar o container.
+Para limpar somente os estudantes do banco dev, voltar ao ano corrente e carregar três estudantes fictícios de demonstração, execute:
+
+```powershell
+docker compose -f docker-compose.dev.yml run --rm web python server.py reset-dev-data
+```
+
+O comando preserva as contas de servidores, apaga os registros estudantis do banco de desenvolvimento e recria os ciclos para o ano atual. Ele é bloqueado fora do serviço configurado com `APP_ENV=development`. Encerre com `Ctrl+C`; use `docker compose -f docker-compose.dev.yml down` para parar o serviço. Os dados dev ficam em `data-dev\livros.db` e continuam disponíveis depois de remover ou recriar o container.
 
 ### Produção
 
@@ -128,8 +134,8 @@ Exemplo de CSV (UTF-8, cabeçalhos na primeira linha):
 
 ```csv
 matricula;nome;turma
-202612345;Ana da Silva;1º
-202612346;João Souza;2º ano
+2026304710;Ana da Silva;1º
+2026304711;João Souza;2º ano
 ```
 
 Cada ano letivo tem seu próprio termo. Ao iniciar um novo ano, estudantes ativos são promovidos automaticamente (1º→2º e 2º→3º); quem concluiu o 3º ano fica arquivado, sem novo termo ativo. O ciclo, a turma histórica e a relação de títulos de cada termo ficam preservados, e é possível selecionar anos anteriores no detalhe do estudante e exportar o termo daquele ano em PDF.

@@ -16,6 +16,10 @@ class ServiceError(Exception):
         self.status = status
 
 
+def _is_valid_enrollment(enrollment):
+    return isinstance(enrollment, str) and re.fullmatch(r"[0-9]{10}", enrollment) is not None
+
+
 def create_user(database_path, email, password, is_admin=False):
     email = normalize_email(email)
     if not is_ifc_email(email):
@@ -123,8 +127,8 @@ def create_student(database_path, body, school_year):
     grade = body.get("grade")
     if not isinstance(name, str) or not name.strip() or len(name.strip()) > 150:
         raise ServiceError("Informe o nome do estudante (até 150 caracteres).", 400)
-    if not isinstance(enrollment, str) or not re.fullmatch(r"[A-Za-z0-9-]{1,30}", enrollment.strip()):
-        raise ServiceError("Informe uma matrícula válida (até 30 letras, números ou hífens).", 400)
+    if not _is_valid_enrollment(enrollment.strip() if isinstance(enrollment, str) else enrollment):
+        raise ServiceError("A matrícula deve conter exatamente 10 números.", 400)
     if grade not in GRADES:
         raise ServiceError("Selecione o 1º, 2º ou 3º ano.", 400)
     enrollment = enrollment.strip()
@@ -192,7 +196,7 @@ def import_students(database_path, filename, content, school_year):
             grade_value = (row.get(normalized_headers["turma"]) or "").strip()
             grade = _normalize_grade(grade_value)
 
-            if not re.fullmatch(r"[A-Za-z0-9-]{1,30}", enrollment):
+            if not _is_valid_enrollment(enrollment):
                 invalid_rows.append({"line": line_number, "reason": "matrícula inválida"})
             elif not name or len(name) > 150:
                 invalid_rows.append({"line": line_number, "reason": "nome ausente ou maior que 150 caracteres"})

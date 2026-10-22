@@ -548,7 +548,9 @@ function buildPrintTermMarkup(student, date) {
     "Em caso de desistência do curso ou transferência para outra instituição, os livros deverão ser devolvidos para a liberação da transferência e/ou formalização da desistência.",
     "Em caso de perda, roubo ou dano aos livros didáticos, não haverá reposição destes itens ao(à) estudante.",
   ];
-  const rows = student.books.map((book) => `<tr>
+  const rows = [...student.books]
+    .sort((first, second) => first.title.localeCompare(second.title, "pt-BR", { sensitivity: "base" }))
+    .map((book) => `<tr>
     <td>${escapeHtml(book.title)}</td>
     <td>${book.checkout_signature ? `<img src="${escapeHtml(book.checkout_signature)}" alt="Assinatura do estudante"><small>${formatDate(book.checkout_at)}</small>` : '<span class="print-blank">Pendente</span>'}</td>
     <td>${book.return_signature ? `<img src="${escapeHtml(book.return_signature)}" alt="Assinatura do servidor"><small>${formatDate(book.return_at)}</small>` : '<span class="print-blank">Pendente</span>'}</td>
