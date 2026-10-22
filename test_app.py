@@ -234,13 +234,29 @@ class LibraryAppTest(unittest.TestCase):
                 "SCHOOL_YEAR": 2027,
             }
         )
+        self.client = self.app.test_client()
+        self.login()
         student_2027 = self.client.get("/api/students/2026001?year=2027").get_json()
         self.assertEqual(student_2027["grade"], "2º")
         carried = next(book for book in student_2027["books"] if book["id"] == "historia")
         self.assertTrue(carried["carried_forward"])
         self.assertEqual(carried["issue_year"], 2026)
+        self.assertEqual(len(student_2027["books"]), 15)
+        historical_2026 = self.client.get("/api/students/2026001?year=2026").get_json()
+        self.assertEqual(len(historical_2026["books"]), 15)
+        historical_pending = next(
+            book for book in historical_2026["books"] if book["id"] == "redacao"
+        )
+        self.assertEqual(historical_pending["issue_year"], 2027)
+        self.assertIsNone(historical_pending["checkout_signature"])
         self.assertNotIn("portugues-2026-1", {book["id"] for book in student_2027["books"]})
         self.assertIn("portugues-2027-2", {book["id"] for book in student_2027["books"]})
+        old_book_checkout = self.client.put(
+            "/api/students/2026001/books/portugues-2026-1/checkout",
+            json={"signature": signature},
+            headers={"X-CSRF-Token": self.csrf()},
+        )
+        self.assertEqual(old_book_checkout.status_code, 409)
 
         returned = self.client.put(
             "/api/students/2026001/books/historia/return",
@@ -248,8 +264,13 @@ class LibraryAppTest(unittest.TestCase):
             headers={"X-CSRF-Token": self.csrf()},
         )
         self.assertEqual(returned.status_code, 200)
+        current_history = next(
+            book for book in returned.get_json()["books"] if book["id"] == "historia"
+        )
+        self.assertTrue(current_history["return_signature"])
+        historical_return = self.client.get("/api/students/2026001?year=2026").get_json()
         self.assertTrue(
-            next(book for book in returned.get_json()["books"] if book["id"] == "historia")[
+            next(book for book in historical_return["books"] if book["id"] == "historia")[
                 "return_signature"
             ]
         )
@@ -263,9 +284,18 @@ class LibraryAppTest(unittest.TestCase):
                     "SCHOOL_YEAR": year,
                 }
             )
+            self.client = self.app.test_client()
+            self.login()
             term = self.client.get(f"/api/students/2026001?year={year}").get_json()
             self.assertEqual(term["grade"], expected_grade)
             self.assertEqual(term["status"], "active")
+            if year == 2028:
+                final_year_checkout = self.client.put(
+                    "/api/students/2026001/books/ingles/checkout",
+                    json={"signature": signature},
+                    headers={"X-CSRF-Token": self.csrf()},
+                )
+                self.assertEqual(final_year_checkout.status_code, 200)
 
         self.app = create_app(
             {
@@ -275,11 +305,26 @@ class LibraryAppTest(unittest.TestCase):
                 "SCHOOL_YEAR": 2030,
             }
         )
+        self.client = self.app.test_client()
+        self.login()
         finalized = self.client.get("/api/students/2026001?year=2028").get_json()
         self.assertEqual(finalized["status"], "completed")
         self.assertEqual(self.client.get("/api/students/2026001?year=2029").status_code, 404)
         archived_term = self.client.get("/api/students/2026001").get_json()
         self.assertEqual(archived_term["school_year"], 2028)
+        archived_loan_return = self.client.put(
+            "/api/students/2026001/books/ingles/return",
+            json={"signature": signature},
+            headers={"X-CSRF-Token": self.csrf()},
+        )
+        self.assertEqual(archived_loan_return.status_code, 200)
+        self.assertTrue(
+            next(
+                book
+                for book in archived_loan_return.get_json()["books"]
+                if book["id"] == "ingles"
+            )["return_signature"]
+        )
         db = sqlite3.connect(database_path)
         try:
             years = db.execute(

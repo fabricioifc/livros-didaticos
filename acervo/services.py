@@ -161,7 +161,12 @@ def update_student(database_path, enrollment, body, school_year):
 def sign_book(database_path, enrollment, book_id, action, signature, server_email, school_year):
     if action not in {"checkout", "return"}:
         raise ServiceError("Operação inválida.", 400)
-    if not repository.find_student(database_path, enrollment, school_year):
+    student = repository.find_student(database_path, enrollment, school_year)
+    if action == "checkout" and (not student or student["status"] != "active"):
+        raise ServiceError("Não é possível registrar uma entrega fora do ciclo letivo ativo.", 409)
+    if not student and action == "return":
+        student = repository.find_student(database_path, enrollment)
+    if not student:
         raise ServiceError("Estudante não encontrado.", 404)
     if not validate_signature(signature):
         raise ServiceError("A assinatura está inválida ou vazia.", 400)
@@ -185,4 +190,6 @@ def sign_book(database_path, enrollment, book_id, action, signature, server_emai
     if result:
         message, status = errors[result]
         raise ServiceError(message, status)
-    return repository.find_student(database_path, enrollment, school_year)
+    return repository.find_student(database_path, enrollment, school_year) or repository.find_student(
+        database_path, enrollment
+    )

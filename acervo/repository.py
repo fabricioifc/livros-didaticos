@@ -56,10 +56,21 @@ def initialize_db(database_path, school_year):
                 status TEXT NOT NULL CHECK (status IN ('active', 'completed')),
                 PRIMARY KEY (enrollment, school_year)
             );
+            CREATE TABLE IF NOT EXISTS student_year_books (
+                enrollment TEXT NOT NULL,
+                school_year INTEGER NOT NULL,
+                book_id TEXT NOT NULL,
+                PRIMARY KEY (enrollment, school_year, book_id),
+                FOREIGN KEY (enrollment, school_year)
+                    REFERENCES student_years(enrollment, school_year) ON DELETE CASCADE,
+                FOREIGN KEY (enrollment, book_id)
+                    REFERENCES book_signatures(enrollment, book_id) ON DELETE CASCADE
+            );
             """
         )
         _migrate_legacy_book_ids(db)
         _initialize_school_years(db, school_year)
+        _backfill_school_year_books(db)
 
 
 def _migrate_legacy_book_ids(db):
@@ -99,7 +110,7 @@ def _insert_school_year(db, enrollment, school_year, grade, status="active"):
     existing = {
         row["book_id"]: row
         for row in db.execute(
-            """SELECT book_id, checkout_signature, return_signature FROM book_signatures
+            """SELECT book_id, checkout_signature, return_signature, issue_year FROM book_signatures
                WHERE enrollment = ?""",
             (enrollment,),
         ).fetchall()
@@ -107,22 +118,51 @@ def _insert_school_year(db, enrollment, school_year, grade, status="active"):
     for book in book_list(grade, school_year):
         prior = existing.get(book["id"])
         if prior:
-            if (
-                book["id"] in {book_id for book_id, _ in SHARED_BOOKS}
-                and not prior["checkout_signature"]
-                and not prior["return_signature"]
-            ):
-                db.execute(
-                    """UPDATE book_signatures SET issue_year = ?
-                       WHERE enrollment = ? AND book_id = ?""",
-                    (school_year, enrollment, book["id"]),
-                )
+            if book["id"] in {book_id for book_id, _ in SHARED_BOOKS}:
+                if prior["return_signature"]:
+                    continue
+                if not prior["checkout_signature"]:
+                    db.execute(
+                        """UPDATE book_signatures SET issue_year = ?
+                           WHERE enrollment = ? AND book_id = ?""",
+                        (school_year, enrollment, book["id"]),
+                    )
+            db.execute(
+                """INSERT OR IGNORE INTO student_year_books (enrollment, school_year, book_id)
+                   VALUES (?, ?, ?)""",
+                (enrollment, school_year, book["id"]),
+            )
             continue
         db.execute(
             """INSERT INTO book_signatures (enrollment, book_id, title, issue_year)
                VALUES (?, ?, ?, ?)""",
             (enrollment, book["id"], book["title"], school_year),
         )
+        db.execute(
+            """INSERT INTO student_year_books (enrollment, school_year, book_id)
+               VALUES (?, ?, ?)""",
+            (enrollment, school_year, book["id"]),
+        )
+
+
+def _backfill_school_year_books(db):
+    shared_ids = tuple(book_id for book_id, _ in SHARED_BOOKS)
+    placeholders = ",".join("?" for _ in shared_ids)
+    db.execute(
+        """INSERT OR IGNORE INTO student_year_books (enrollment, school_year, book_id)
+           SELECT y.enrollment, y.school_year, b.book_id
+           FROM student_years y
+           JOIN book_signatures b ON b.enrollment = y.enrollment
+           WHERE y.status = 'active' AND (
+               b.issue_year = y.school_year OR (
+                   b.book_id IN (""" + placeholders + """)
+                   AND b.checkout_signature IS NOT NULL
+                   AND b.return_signature IS NULL
+                   AND b.issue_year < y.school_year
+               )
+           )""",
+        shared_ids,
+    )
 
 
 def _initialize_school_years(db, current_year):
@@ -140,7 +180,12 @@ def _initialize_school_years(db, current_year):
                 "SELECT MIN(issue_year) AS first_year FROM book_signatures WHERE enrollment = ?",
                 (student["enrollment"],),
             ).fetchone()["first_year"]
-            start_year = min(first_issue, current_year) if first_issue else current_year
+            if first_issue and first_issue > current_year:
+                raise ValueError(
+                    f"O ano letivo configurado ({current_year}) é anterior ao primeiro "
+                    f"empréstimo registrado ({first_issue})."
+                )
+            start_year = first_issue or current_year
             legacy_grade = student["grade"]
             legacy_language = db.execute(
                 """SELECT book_id FROM book_signatures
@@ -287,23 +332,29 @@ def find_student(database_path, enrollment, school_year=None):
         selected_term = next((year for year in years if year["school_year"] == selected_year), None)
         if not selected_term:
             return None
-        shared_ids = [book_id for book_id, _ in SHARED_BOOKS]
-        placeholders = ",".join("?" for _ in shared_ids)
         books = db.execute(
-            """SELECT book_id AS id, title, issue_year, checkout_signature, checkout_at,
-                      return_signature, return_at, return_by,
-                      CASE WHEN issue_year < ? THEN 1 ELSE 0 END AS carried_forward
-               FROM book_signatures
-               WHERE enrollment = ? AND (
-                   issue_year = ? OR (
-                       book_id IN (""" + placeholders + """)
-                       AND checkout_signature IS NOT NULL
-                       AND return_signature IS NULL
-                       AND issue_year < ?
-                   )
-               )
-               ORDER BY issue_year, rowid""",
-            (selected_year, enrollment, selected_year, *shared_ids, selected_year),
+            """SELECT b.book_id AS id, b.title, b.issue_year,
+                      CASE WHEN b.issue_year <= ? THEN b.checkout_signature END AS checkout_signature,
+                      CASE WHEN b.issue_year <= ? THEN b.checkout_at END AS checkout_at,
+                      CASE WHEN b.issue_year <= ? THEN b.return_signature END AS return_signature,
+                      CASE WHEN b.issue_year <= ? THEN b.return_at END AS return_at,
+                      CASE WHEN b.issue_year <= ? THEN b.return_by END AS return_by,
+                      CASE WHEN b.issue_year < ? THEN 1 ELSE 0 END AS carried_forward
+               FROM student_year_books yb
+               JOIN book_signatures b
+                 ON b.enrollment = yb.enrollment AND b.book_id = yb.book_id
+               WHERE yb.enrollment = ? AND yb.school_year = ?
+               ORDER BY b.issue_year, b.rowid""",
+            (
+                selected_year,
+                selected_year,
+                selected_year,
+                selected_year,
+                selected_year,
+                selected_year,
+                enrollment,
+                selected_year,
+            ),
         ).fetchall()
     return {
         **dict(student),
@@ -331,20 +382,15 @@ def list_students(database_path, query, school_year):
                    (SELECT MAX(last_year.school_year) FROM student_years last_year
                     WHERE last_year.enrollment = s.enrollment)
                )
-               LEFT JOIN book_signatures b ON b.enrollment = s.enrollment AND (
-                   b.issue_year = y.school_year OR (
-                       b.book_id IN (""" + ",".join("?" for _ in SHARED_BOOKS) + """)
-                       AND b.checkout_signature IS NOT NULL
-                       AND b.return_signature IS NULL
-                       AND b.issue_year < y.school_year
-                   )
-               )
+               LEFT JOIN student_year_books yb
+                 ON yb.enrollment = y.enrollment AND yb.school_year = y.school_year
+               LEFT JOIN book_signatures b
+                 ON b.enrollment = yb.enrollment AND b.book_id = yb.book_id
                WHERE s.name LIKE ? OR s.enrollment LIKE ?
                GROUP BY s.enrollment
                ORDER BY s.name COLLATE NOCASE""",
             (
                 school_year,
-                *(book_id for book_id, _ in SHARED_BOOKS),
                 f"%{query}%",
                 f"%{query}%",
             ),

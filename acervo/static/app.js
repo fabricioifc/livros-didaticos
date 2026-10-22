@@ -246,6 +246,9 @@ function renderStudentDetail() {
   $("#book-list").innerHTML = student.books.map((book) => {
     const returned = Boolean(book.return_signature);
     const issued = Boolean(book.checkout_signature);
+    const carryNotice = book.carried_forward
+      ? `<span class="book-status book-status--issued"><i></i>Empréstimo iniciado em ${book.issue_year}</span>`
+      : "";
     const status = returned ? `<span class="book-status book-status--returned"><i></i>Devolvido em ${formatDate(book.return_at)}</span>` : issued ? `<span class="book-status book-status--issued"><i></i>Entregue em ${formatDate(book.checkout_at)}</span>` : '<span class="book-status book-status--pending"><i></i>Aguardando assinatura</span>';
     const checkoutSignature = book.checkout_signature ? `<img class="signature-thumb" src="${escapeHtml(book.checkout_signature)}" alt="Assinatura do estudante">` : "";
     const returnSignature = book.return_signature ? `<img class="signature-thumb" src="${escapeHtml(book.return_signature)}" alt="Assinatura do servidor">` : "";
@@ -257,7 +260,7 @@ function renderStudentDetail() {
           ? `<button class="book-action" data-action="sign-checkout" data-book="${escapeHtml(book.id)}"><span class="book-action-icon">✎</span> Assinar entrega</button>`
           : '<span class="book-done">Somente consulta</span>';
     return `<article class="book-row">
-      <div class="book-info"><span class="book-index">${String(student.books.indexOf(book) + 1).padStart(2, "0")}</span><div><strong>${escapeHtml(book.title)}</strong>${status}</div></div>
+      <div class="book-info"><span class="book-index">${String(student.books.indexOf(book) + 1).padStart(2, "0")}</span><div><strong>${escapeHtml(book.title)}</strong>${carryNotice}${status}</div></div>
       <div class="book-signatures">      <span class="signature-cell">${checkoutSignature || '<span class="signature-placeholder-text">—</span>'}<small>Aluno</small></span><span class="signature-cell">${returnSignature || '<span class="signature-placeholder-text">—</span>'}<small>Servidor</small></span></div>
       <div class="book-action-cell">${button}</div>
     </article>`;
