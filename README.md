@@ -47,7 +47,14 @@ python server.py
 
 No primeiro acesso, crie uma conta de servidor pelo comando `create-user`, usando um e-mail `@ifc.edu.br` e uma senha com pelo menos 12 caracteres. A aplicação abre em `http://127.0.0.1:5000`. O banco SQLite `livros.db` é criado localmente e persiste os cadastros e assinaturas.
 
-Defina `SECRET_KEY` com um segredo aleatório persistente antes de hospedar a aplicação e configure `COOKIE_SECURE=true` quando servida por HTTPS. Faça cópias de segurança do banco de dados e proteja seu acesso.
+Defina `SECRET_KEY` com um segredo aleatório persistente antes de hospedar a aplicação e configure `COOKIE_SECURE=true` quando servida por HTTPS.
+
+### Sessão e login
+
+- Fora do `server.py`, a aplicação não inicia sem `SECRET_KEY`. Localmente, o `server.py` gera uma chave temporária, e as sessões caem a cada reinício.
+- A sessão expira após 12 horas do login (`SESSION_MAX_AGE`) ou 30 minutos sem uso (`SESSION_IDLE_TIMEOUT`). Os dois valores são em segundos.
+- Sair da conta encerra as sessões do usuário em todos os dispositivos. Desativar uma conta também invalida as sessões existentes, mesmo que ela seja reativada depois.
+- Após 5 tentativas de login com erro para o mesmo e-mail, novas tentativas ficam bloqueadas por 15 minutos. Faça cópias de segurança do banco de dados e proteja seu acesso.
 
 ## Docker Compose
 

@@ -679,6 +679,7 @@ class LibraryAppTest(unittest.TestCase):
         migrated_app = create_app(
             {
                 "TESTING": True,
+                "SECRET_KEY": "test-only-secret-key-for-tests-32bytes",
                 "DATABASE_PATH": str(database_path),
                 "SCHOOL_YEAR": 2026,
             }
@@ -1117,6 +1118,7 @@ class LibraryAppTest(unittest.TestCase):
         migrated_app = create_app(
             {
                 "TESTING": True,
+                "SECRET_KEY": "test-only-secret-key-for-tests-32bytes",
                 "DATABASE_PATH": str(database_path),
                 "SCHOOL_YEAR": 2027,
             }
@@ -1243,6 +1245,107 @@ class LibraryAppTest(unittest.TestCase):
             )
         )
         self.assertEqual(historical_enrollment, "historical-student")
+
+    def login_attempt(self, client, password, email="servidor@ifc.edu.br"):
+        token = client.get("/api/auth/session").get_json()["csrf_token"]
+        return client.post(
+            "/api/auth/login",
+            json={"email": email, "password": password},
+            headers={"X-CSRF-Token": token},
+        )
+
+    def test_login_is_blocked_after_repeated_failures(self):
+        for _ in range(5):
+            self.assertEqual(self.login_attempt(self.client, "senha-errada-123").status_code, 401)
+        blocked = self.login_attempt(self.client, "senha-segura-de-teste")
+        self.assertEqual(blocked.status_code, 429)
+        self.assertIn("Muitas tentativas", blocked.get_json()["error"])
+        other_client = self.app.test_client()
+        self.assertEqual(self.login_attempt(other_client, "senha-segura-de-teste").status_code, 429)
+
+        database_path = self.app.config["DATABASE_PATH"]
+        connection = sqlite3.connect(database_path)
+        try:
+            connection.execute("UPDATE login_failures SET failed_at = failed_at - 16 * 60")
+            connection.commit()
+        finally:
+            connection.close()
+        self.assertEqual(self.login_attempt(self.client, "senha-segura-de-teste").status_code, 200)
+
+    def test_successful_login_resets_failure_count(self):
+        for _ in range(4):
+            self.login_attempt(self.client, "senha-errada-123")
+        self.assertEqual(self.login_attempt(self.client, "senha-segura-de-teste").status_code, 200)
+        other_client = self.app.test_client()
+        for _ in range(4):
+            self.assertEqual(self.login_attempt(other_client, "senha-errada-123").status_code, 401)
+        self.assertEqual(self.login_attempt(other_client, "senha-segura-de-teste").status_code, 200)
+
+    def test_unknown_email_failures_are_also_limited(self):
+        for _ in range(5):
+            response = self.login_attempt(self.client, "qualquer-senha-1", "ninguem@ifc.edu.br")
+            self.assertEqual(response.status_code, 401)
+        response = self.login_attempt(self.client, "qualquer-senha-1", "ninguem@ifc.edu.br")
+        self.assertEqual(response.status_code, 429)
+
+    def test_login_requires_csrf_token(self):
+        response = self.app.test_client().post(
+            "/api/auth/login",
+            json={"email": "servidor@ifc.edu.br", "password": "senha-segura-de-teste"},
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_logout_invalidates_copies_of_the_session_cookie(self):
+        self.assertEqual(self.login().status_code, 200)
+        copied = self.app.test_client()
+        cookie = self.client.get_cookie("session")
+        copied.set_cookie("session", cookie.value)
+        self.assertEqual(copied.get("/api/students").status_code, 200)
+
+        logout = self.client.post("/api/auth/logout", headers={"X-CSRF-Token": self.csrf()})
+        self.assertEqual(logout.status_code, 200)
+        replay = copied.get("/api/students")
+        self.assertEqual(replay.status_code, 401)
+        self.assertIn("encerrada", replay.get_json()["error"])
+        self.assertEqual(self.login().status_code, 200)
+        self.assertEqual(self.client.get("/api/students").status_code, 200)
+
+    def test_reactivated_account_does_not_restore_old_sessions(self):
+        database_path = self.app.config["DATABASE_PATH"]
+        self.login()
+        user = repository.find_user(database_path, "servidor@ifc.edu.br")
+        repository.update_user(database_path, user["id"], False, False)
+        repository.update_user(database_path, user["id"], False, True)
+        self.assertEqual(self.client.get("/api/students").status_code, 401)
+
+    def test_session_expires_after_idle_time_and_max_age(self):
+        self.login()
+        with self.client.session_transaction() as session:
+            session["last_seen"] -= self.app.config["SESSION_IDLE_TIMEOUT"] + 1
+        expired = self.client.get("/api/students")
+        self.assertEqual(expired.status_code, 401)
+        self.assertIn("expirou", expired.get_json()["error"])
+        self.assertFalse(self.client.get("/api/auth/session").get_json()["authenticated"])
+
+        self.login()
+        with self.client.session_transaction() as session:
+            session["login_at"] -= self.app.config["SESSION_MAX_AGE"] + 1
+        self.assertEqual(self.client.get("/api/students").status_code, 401)
+
+        login = self.login()
+        self.assertEqual(login.status_code, 200)
+        self.assertIn("Expires=", login.headers["Set-Cookie"])
+        self.assertEqual(self.client.get("/api/students").status_code, 200)
+
+    def test_app_requires_secret_key_outside_local_runs(self):
+        database_path = str(Path(self.temp_dir.name) / "no-secret.db")
+        with self.assertRaises(RuntimeError):
+            create_app({"DATABASE_PATH": database_path, "SECRET_KEY": None})
+        local_app = create_app(
+            {"DATABASE_PATH": database_path, "SECRET_KEY": None},
+            allow_ephemeral_secret=True,
+        )
+        self.assertTrue(local_app.config["SECRET_KEY"])
 
 
 if __name__ == "__main__":

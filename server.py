@@ -22,7 +22,7 @@ def main():
     )
     args = parser.parse_args()
     if args.command == "create-user":
-        app = create_app()
+        app = create_app(allow_ephemeral_secret=True)
         email = input("E-mail institucional: ")
         password = getpass.getpass("Senha (mínimo 12 caracteres): ")
         try:
@@ -34,7 +34,7 @@ def main():
     if args.command == "reset-dev-data":
         if os.environ.get("APP_ENV") != "development":
             parser.error("Este comando só pode ser executado com APP_ENV=development.")
-        app = create_app()
+        app = create_app(allow_ephemeral_secret=True)
         school_year = datetime.now().year
         database_path = app.config["DATABASE_PATH"]
         repository.reset_dev_students(
@@ -51,7 +51,7 @@ def main():
             "3 estudantes fictícios foram cadastrados. Contas de servidores preservadas."
         )
         return
-    app = create_app()
+    app = create_app(allow_ephemeral_secret=True)
     app.run(host="127.0.0.1", port=int(os.environ.get("PORT", "5000")), debug=False)
 
 

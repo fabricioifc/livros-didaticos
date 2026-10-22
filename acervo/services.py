@@ -2,6 +2,7 @@ import csv
 import io
 import re
 import sqlite3
+import time
 import unicodedata
 
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -31,17 +32,33 @@ def create_user(database_path, email, password, is_admin=False):
     )
 
 
-def authenticate(database_path, email, password):
+LOGIN_MAX_FAILURES = 5
+LOGIN_FAILURE_WINDOW = 15 * 60
+# Conferido quando o e-mail não existe, para o tempo de resposta não
+# revelar quais contas estão cadastradas.
+_UNKNOWN_USER_HASH = generate_password_hash("conta-inexistente")
+
+
+def authenticate(database_path, email, password, now=None):
     email = normalize_email(email)
     if not is_ifc_email(email) or not isinstance(password, str):
         raise ServiceError("Informe um e-mail @ifc.edu.br e uma senha.", 400)
+    now = time.time() if now is None else now
+    window_start = now - LOGIN_FAILURE_WINDOW
+    # O bloqueio vale por e-mail e é verificado antes da senha, para que
+    # tentativas durante o bloqueio não revelem se a senha estava certa.
+    if repository.count_login_failures(database_path, email, window_start) >= LOGIN_MAX_FAILURES:
+        raise ServiceError(
+            "Muitas tentativas de login. Aguarde 15 minutos e tente novamente.", 429
+        )
     user = repository.find_user(database_path, email)
-    if (
-        not user
-        or not user["is_active"]
-        or not check_password_hash(user["password_hash"], password)
-    ):
+    password_ok = check_password_hash(
+        user["password_hash"] if user else _UNKNOWN_USER_HASH, password
+    )
+    if not user or not user["is_active"] or not password_ok:
+        repository.record_login_failure(database_path, email, now, window_start)
         raise ServiceError("E-mail ou senha incorretos.", 401)
+    repository.clear_login_failures(database_path, email)
     return user
 
 

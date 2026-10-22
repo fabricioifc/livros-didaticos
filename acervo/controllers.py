@@ -1,5 +1,6 @@
 import hmac
 import secrets
+import time
 from functools import wraps
 
 from flask import Blueprint, Response, current_app, g, jsonify, render_template, request, session
@@ -16,22 +17,56 @@ def json_error(message, status):
 
 def csrf_error():
     token = request.headers.get("X-CSRF-Token", "")
-    if not hmac.compare_digest(token, session.get("csrf_token", "")):
+    expected = session.get("csrf_token", "")
+    if not expected or not hmac.compare_digest(token, expected):
         return json_error("Sessão expirada. Atualize a página e tente novamente.", 403)
     return None
+
+
+def start_session(user):
+    now = int(time.time())
+    session.clear()
+    session.permanent = True
+    session["user_id"] = user["id"]
+    session["email"] = user["email"]
+    session["session_version"] = user["session_version"]
+    session["login_at"] = now
+    session["last_seen"] = now
+    session["csrf_token"] = secrets.token_urlsafe(32)
+
+
+def reset_anonymous_session():
+    session.clear()
+    session["csrf_token"] = secrets.token_urlsafe(32)
+
+
+def session_user():
+    """Devolve o usuário da sessão ou uma mensagem explicando por que ela acabou."""
+    if "user_id" not in session:
+        return None, "Faça login para continuar."
+    now = int(time.time())
+    config = current_app.config
+    if (
+        now - session.get("login_at", 0) > config["SESSION_MAX_AGE"]
+        or now - session.get("last_seen", 0) > config["SESSION_IDLE_TIMEOUT"]
+    ):
+        return None, "Sua sessão expirou. Faça login novamente."
+    user = services.repository.find_user_by_id(config["DATABASE_PATH"], session["user_id"])
+    if not user or not user["is_active"]:
+        return None, "Sua conta está desativada. Fale com um administrador."
+    if user["session_version"] != session.get("session_version"):
+        return None, "Sua sessão foi encerrada. Faça login novamente."
+    session["last_seen"] = now
+    return user, None
 
 
 def login_required(view):
     @wraps(view)
     def wrapped(*args, **kwargs):
-        if "user_id" not in session:
-            return json_error("Faça login para continuar.", 401)
-        user = services.repository.find_user_by_id(
-            current_app.config["DATABASE_PATH"], session["user_id"]
-        )
-        if not user or not user["is_active"]:
-            session.clear()
-            return json_error("Sua conta está desativada. Fale com um administrador.", 401)
+        user, reason = session_user()
+        if not user:
+            reset_anonymous_session()
+            return json_error(reason, 401)
         g.user_id = user["id"]
         g.user_email = user["email"]
         g.user_is_admin = bool(user["is_admin"])
@@ -72,10 +107,9 @@ def privacy_notice():
 
 @main.post("/api/auth/login")
 def login():
-    if "csrf_token" in session:
-        error = csrf_error()
-        if error:
-            return error
+    error = csrf_error()
+    if error:
+        return error
     body = request_body()
     try:
         user = services.authenticate(
@@ -85,10 +119,7 @@ def login():
         )
     except services.ServiceError as error:
         return handle_service_error(error)
-    session.clear()
-    session["user_id"] = user["id"]
-    session["email"] = user["email"]
-    session["csrf_token"] = secrets.token_urlsafe(32)
+    start_session(user)
     return jsonify(
         {
             "email": user["email"],
@@ -100,15 +131,10 @@ def login():
 
 @main.get("/api/auth/session")
 def auth_session():
-    if "user_id" not in session:
-        session["csrf_token"] = secrets.token_urlsafe(32)
-        return jsonify({"authenticated": False, "csrf_token": session["csrf_token"]})
-    user = services.repository.find_user_by_id(
-        current_app.config["DATABASE_PATH"], session["user_id"]
-    )
-    if not user or not user["is_active"]:
-        session.clear()
-        session["csrf_token"] = secrets.token_urlsafe(32)
+    user, _ = session_user()
+    if not user:
+        if "user_id" in session or "csrf_token" not in session:
+            reset_anonymous_session()
         return jsonify({"authenticated": False, "csrf_token": session["csrf_token"]})
     return jsonify(
         {
@@ -126,7 +152,9 @@ def logout():
     error = csrf_error()
     if error:
         return error
-    session.clear()
+    # Invalida também cópias do cookie desta conta em outros dispositivos.
+    services.repository.bump_session_version(current_app.config["DATABASE_PATH"], g.user_id)
+    reset_anonymous_session()
     return jsonify({"ok": True})
 
 

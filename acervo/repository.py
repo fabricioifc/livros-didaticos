@@ -31,8 +31,16 @@ def initialize_db(database_path, school_year):
                 password_hash TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 is_admin INTEGER NOT NULL DEFAULT 0 CHECK (is_admin IN (0, 1)),
-                is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1))
+                is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
+                session_version INTEGER NOT NULL DEFAULT 0
             );
+            CREATE TABLE IF NOT EXISTS login_failures (
+                id INTEGER PRIMARY KEY,
+                email TEXT NOT NULL,
+                failed_at REAL NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS login_failures_email
+                ON login_failures (email, failed_at);
             CREATE TABLE IF NOT EXISTS students (
                 enrollment TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
@@ -103,6 +111,10 @@ def initialize_db(database_path, school_year):
         if "is_active" not in user_columns:
             db.execute(
                 "ALTER TABLE users ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1"
+            )
+        if "session_version" not in user_columns:
+            db.execute(
+                "ALTER TABLE users ADD COLUMN session_version INTEGER NOT NULL DEFAULT 0"
             )
         course_columns = {
             row["name"] for row in db.execute("PRAGMA table_info(courses)").fetchall()
@@ -478,7 +490,7 @@ def _initialize_school_years(db, current_year):
 def find_user(database_path, email):
     with database(database_path) as db:
         row = db.execute(
-            """SELECT id, email, password_hash, is_admin, is_active
+            """SELECT id, email, password_hash, is_admin, is_active, session_version
                FROM users WHERE email = ?""",
             (email,),
         ).fetchone()
@@ -488,7 +500,7 @@ def find_user(database_path, email):
 def find_user_by_id(database_path, user_id):
     with database(database_path) as db:
         row = db.execute(
-            """SELECT id, email, is_admin, is_active FROM users
+            """SELECT id, email, is_admin, is_active, session_version FROM users
                WHERE id = ?""",
             (user_id,),
         ).fetchone()
@@ -533,10 +545,42 @@ def update_user(database_path, user_id, is_admin, is_active):
             if active_admins <= 1:
                 return "last_admin"
         db.execute(
-            "UPDATE users SET is_admin = ?, is_active = ? WHERE id = ?",
-            (int(is_admin), int(is_active), user_id),
+            """UPDATE users SET is_admin = ?, is_active = ?,
+                   session_version = session_version + ?
+               WHERE id = ?""",
+            (int(is_admin), int(is_active), int(not is_active), user_id),
         )
     return None
+
+
+def bump_session_version(database_path, user_id):
+    with database(database_path) as db:
+        db.execute(
+            "UPDATE users SET session_version = session_version + 1 WHERE id = ?",
+            (user_id,),
+        )
+
+
+def count_login_failures(database_path, email, since):
+    with database(database_path) as db:
+        return db.execute(
+            "SELECT COUNT(*) FROM login_failures WHERE email = ? AND failed_at >= ?",
+            (email, since),
+        ).fetchone()[0]
+
+
+def record_login_failure(database_path, email, failed_at, prune_before):
+    with database(database_path) as db:
+        db.execute("DELETE FROM login_failures WHERE failed_at < ?", (prune_before,))
+        db.execute(
+            "INSERT INTO login_failures (email, failed_at) VALUES (?, ?)",
+            (email, failed_at),
+        )
+
+
+def clear_login_failures(database_path, email):
+    with database(database_path) as db:
+        db.execute("DELETE FROM login_failures WHERE email = ?", (email,))
 
 
 def add_student(database_path, enrollment, name, grade, course_id, created_at, school_year):
