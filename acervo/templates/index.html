@@ -139,10 +139,21 @@
   </dialog>
 
   <dialog id="student-detail-dialog" class="dialog dialog--detail">
-    <div class="dialog-heading detail-heading"><div><span class="eyebrow">TERMO DE COMPROMISSO · <span id="detail-school-year"></span></span><h2 id="detail-name"></h2><p id="detail-meta"></p><label class="field-label" for="detail-year-select">Ciclo letivo</label><select class="text-input detail-year-select" id="detail-year-select" aria-label="Selecionar ciclo letivo"></select></div><div class="detail-header-actions"><button class="text-button" id="edit-student-button" type="button">Editar cadastro</button><button class="dialog-close" type="button" data-close="student-detail-dialog" aria-label="Fechar">×</button></div></div>
+    <div class="dialog-heading detail-heading"><div><span class="eyebrow">TERMO DE COMPROMISSO · <span id="detail-school-year"></span></span><h2 id="detail-name"></h2><p id="detail-meta"></p><label class="field-label" for="detail-year-select">Ciclo letivo</label><select class="text-input detail-year-select" id="detail-year-select" aria-label="Selecionar ciclo letivo"></select></div><div class="detail-header-actions"><button class="text-button" id="reset-student-access-button" type="button" hidden>Gerar acesso do aluno</button><button class="text-button" id="edit-student-button" type="button">Editar cadastro</button><button class="dialog-close" type="button" data-close="student-detail-dialog" aria-label="Fechar">×</button></div></div>
     <div class="detail-progress"><div><span id="detail-progress-label">0 de 15 títulos entregues</span><button class="text-button" id="export-term-button">Exportar PDF <span>↗</span></button></div><div class="progress-track"><span id="detail-progress-bar"></span></div></div>
     <div class="book-list" id="book-list"></div>
     <div class="detail-footer"><span><i class="legend-dot legend-dot--issued"></i>Entregue <i class="legend-dot legend-dot--returned"></i>Devolvido</span><button class="button button--secondary" type="button" data-close="student-detail-dialog">Concluir</button></div>
+  </dialog>
+
+  <dialog id="qr-scan-dialog" class="dialog dialog--signature">
+    <div class="dialog-heading"><div><span class="eyebrow">VALIDAÇÃO DO ESTUDANTE</span><h2>Escaneie o QR Code</h2><p id="qr-scan-status">Peça ao estudante para gerar um QR Code no celular.</p></div><button class="dialog-close" type="button" data-close="qr-scan-dialog" aria-label="Fechar">×</button></div>
+    <video id="qr-camera" class="qr-camera" playsinline muted hidden></video>
+    <form id="qr-manual-form" class="qr-manual-form">
+      <label class="field-label" for="qr-manual-token">Ou cole o código do estudante</label>
+      <textarea class="text-input" id="qr-manual-token" rows="3" autocomplete="off"></textarea>
+      <button class="button button--secondary" type="submit">Validar código</button>
+    </form>
+    <div class="dialog-actions"><button class="button button--secondary" type="button" data-close="qr-scan-dialog">Cancelar</button></div>
   </dialog>
 
   <dialog id="signature-dialog" class="dialog dialog--signature">
@@ -153,6 +164,13 @@
       <p class="signature-consent" id="signature-consent">Ao assinar, o estudante confirma o recebimento deste título e se compromete com as regras de utilização do termo.</p>
       <div class="dialog-actions"><button class="button button--secondary" type="button" data-close="signature-dialog">Cancelar</button><button class="button button--primary" type="submit">Confirmar assinatura <span>→</span></button></div>
     </form>
+  </dialog>
+
+  <dialog id="student-access-dialog" class="dialog dialog--form">
+    <div class="dialog-heading"><div><span class="eyebrow">ACESSO DO ESTUDANTE</span><h2>Senha temporária</h2><p>Entregue-a ao estudante após conferir sua identidade. Ela será exibida somente agora.</p></div><button class="dialog-close" type="button" data-close="student-access-dialog" aria-label="Fechar">×</button></div>
+    <p class="student-temp-password" id="student-temp-password"></p>
+    <p class="signature-consent">Acesse <a href="/aluno" target="_blank" rel="noopener">/aluno</a>, entre com matrícula e senha temporária e crie uma senha pessoal. O reset invalida os QR Codes ainda não utilizados.</p>
+    <div class="dialog-actions"><button class="button button--secondary" type="button" data-close="student-access-dialog">Fechar</button></div>
   </dialog>
 
   <div id="print-container" class="print-container" aria-hidden="true"></div>

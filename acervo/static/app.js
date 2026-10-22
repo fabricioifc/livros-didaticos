@@ -12,6 +12,7 @@ const state = {
   editingStudent: null,
   signatureBook: null,
   signatureAction: "checkout",
+  studentQrToken: null,
   schoolYear: null,
   drawing: false,
   hasSignature: false,
@@ -31,6 +32,7 @@ const elements = {
   studentForm: $("#student-form"),
   detailDialog: $("#student-detail-dialog"),
   signatureDialog: $("#signature-dialog"),
+  qrScanDialog: $("#qr-scan-dialog"),
   canvas: $("#signature-canvas"),
   toastRegion: $("#toast-region"),
 };
@@ -300,6 +302,7 @@ function renderStudentDetail() {
   ).join("");
   yearSelect.value = String(student.school_year);
   $("#edit-student-button").hidden = student.school_year !== state.schoolYear || student.status !== "active";
+  $("#reset-student-access-button").hidden = !state.isAdmin;
   $("#detail-name").textContent = student.name;
   $("#detail-meta").textContent = `Matrícula ${student.enrollment} · ${student.grade} ano`;
   $("#detail-progress-label").textContent = `${counts.issued} de ${counts.total} títulos entregues`;
@@ -328,10 +331,15 @@ function renderStudentDetail() {
   }).join("");
 }
 
-function openSignature(bookId, action) {
+function openSignature(bookId, action, verifiedQrToken = null) {
+  if (action === "checkout" && !verifiedQrToken) {
+    openQrScanner(bookId);
+    return;
+  }
   const book = state.currentStudent.books.find((item) => item.id === bookId);
   state.signatureBook = book;
   state.signatureAction = action;
+  state.studentQrToken = verifiedQrToken;
   state.hasSignature = false;
   $("#signature-eyebrow").textContent = action === "checkout" ? "ASSINATURA DO ESTUDANTE" : "ASSINATURA DO SERVIDOR";
   $("#signature-title").textContent = action === "checkout" ? "Assine para confirmar" : "Assine a devolução";
@@ -342,6 +350,93 @@ function openSignature(bookId, action) {
   $("#signature-placeholder").textContent = action === "checkout" ? "Assine aqui com o dedo ou a caneta" : "Assinatura do servidor";
   elements.signatureDialog.showModal();
   window.requestAnimationFrame(resizeCanvas);
+}
+
+let qrCameraStream = null;
+let qrScanning = false;
+
+function stopQrCamera() {
+  qrScanning = false;
+  if (qrCameraStream) {
+    qrCameraStream.getTracks().forEach((track) => track.stop());
+    qrCameraStream = null;
+  }
+  $("#qr-camera").srcObject = null;
+}
+
+async function openQrScanner(bookId) {
+  state.signatureBook = state.currentStudent.books.find((item) => item.id === bookId);
+  state.studentQrToken = null;
+  $("#qr-scan-status").textContent =
+    `Escaneie o QR Code temporário de ${state.currentStudent.name}.`;
+  $("#qr-manual-token").value = "";
+  $("#qr-camera").hidden = true;
+  elements.qrScanDialog.showModal();
+  if (!navigator.mediaDevices?.getUserMedia || typeof BarcodeDetector === "undefined") {
+    $("#qr-scan-status").textContent =
+      "Leitor de câmera indisponível neste navegador. Use um leitor QR que digite o código ou cole o token abaixo.";
+    return;
+  }
+  try {
+    qrCameraStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: "environment" } },
+      audio: false,
+    });
+    if (!elements.qrScanDialog.open) {
+      stopQrCamera();
+      return;
+    }
+    const video = $("#qr-camera");
+    video.srcObject = qrCameraStream;
+    video.hidden = false;
+    await video.play();
+    const detector = new BarcodeDetector({ formats: ["qr_code"] });
+    qrScanning = true;
+    const scan = async () => {
+      if (!qrScanning) return;
+      try {
+        const codes = await detector.detect(video);
+        if (codes.length && codes[0].rawValue) {
+          qrScanning = false;
+          await validateStudentQr(codes[0].rawValue);
+          return;
+        }
+      } catch (error) {
+        stopQrCamera();
+        $("#qr-scan-status").textContent = "Não foi possível ler o QR pela câmera. Tente colar o token.";
+        notify(error.message, "error");
+        return;
+      }
+      window.requestAnimationFrame(scan);
+    };
+    window.requestAnimationFrame(scan);
+  } catch (error) {
+    stopQrCamera();
+    $("#qr-scan-status").textContent =
+      "Não foi possível acessar a câmera. Verifique a permissão do navegador ou cole o token abaixo.";
+    notify(error.message, "error");
+  }
+}
+
+async function validateStudentQr(token) {
+  try {
+    const result = await api("/api/student-qr/verify", {
+      method: "POST",
+      body: JSON.stringify({
+        token: token.trim(),
+        enrollment: state.currentStudent.enrollment,
+      }),
+    });
+    state.studentQrToken = token.trim();
+    stopQrCamera();
+    elements.qrScanDialog.close();
+    notify(`Estudante validado: ${result.name}.`);
+    openSignature(state.signatureBook.id, "checkout", state.studentQrToken);
+  } catch (error) {
+    $("#qr-scan-status").textContent = error.message;
+    stopQrCamera();
+    notify(error.message, "error");
+  }
 }
 
 function resizeCanvas() {
@@ -576,10 +671,36 @@ document.addEventListener("click", (event) => {
   if (target.dataset.action === "save-user") saveManagedUser(target.closest("tr"));
 });
 
+elements.qrScanDialog.addEventListener("close", stopQrCamera);
+$("#qr-manual-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  await validateStudentQr($("#qr-manual-token").value);
+});
+elements.signatureDialog.addEventListener("close", () => {
+  state.studentQrToken = null;
+});
+
 $$("[data-close]").forEach((button) => button.addEventListener("click", () => $(`#${button.dataset.close}`).close()));
 $("#export-term-button").addEventListener("click", () => buildPrintTerm(state.currentStudent));
 $("#export-annual-backup-button").addEventListener("click", exportAnnualBackup);
 $("#detail-year-select").addEventListener("change", (event) => selectStudentYear(Number(event.target.value)));
+$("#reset-student-access-button").addEventListener("click", async () => {
+  if (!state.currentStudent || !window.confirm(`Gerar ou redefinir o acesso QR de ${state.currentStudent.name}?`)) return;
+  const button = $("#reset-student-access-button");
+  button.disabled = true;
+  try {
+    const result = await api(
+      `/api/students/${encodeURIComponent(state.currentStudent.enrollment)}/student-access`,
+      { method: "POST", body: JSON.stringify({}) },
+    );
+    $("#student-temp-password").textContent = result.temporary_password;
+    $("#student-access-dialog").showModal();
+  } catch (error) {
+    notify(error.message, "error");
+  } finally {
+    button.disabled = false;
+  }
+});
 $("#managed-user-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const userForm = event.currentTarget;
@@ -635,7 +756,10 @@ $("#signature-form").addEventListener("submit", async (event) => {
   try {
     await api(`/api/students/${encodeURIComponent(state.currentStudent.enrollment)}/books/${encodeURIComponent(state.signatureBook.id)}/${state.signatureAction}`, {
       method: "PUT",
-      body: JSON.stringify({ signature: elements.canvas.toDataURL("image/png") }),
+      body: JSON.stringify({
+        signature: elements.canvas.toDataURL("image/png"),
+        student_qr_token: state.studentQrToken,
+      }),
     });
     elements.signatureDialog.close();
     await refreshCurrentStudent();
