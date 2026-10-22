@@ -1156,7 +1156,8 @@ class LibraryAppTest(unittest.TestCase):
         self.assertIn(b"Exportar backup anual", page.data)
         self.assertIn(b"Aviso de Privacidade", page.data)
         self.assertRegex(page.data, rb"/static/styles\.css\?v=\d+")
-        self.assertRegex(page.data, rb"/static/app\.js\?v=\d+")
+        self.assertRegex(page.data, rb"/static/js/main\.js\?v=\d+")
+        self.assertRegex(page.data, rb'"/static/js/api\.js": "/static/js/api\.js\?v=\d+"')
         self.assertIn(b"Livros selecionados", page.data)
         self.assertIn(b"signature-book", page.data)
         self.assertIn(b'data-student-status="completed"', page.data)
@@ -1189,7 +1190,7 @@ class LibraryAppTest(unittest.TestCase):
         )
         with self.client.get("/static/styles.css") as styles:
             self.assertEqual(styles.status_code, 200)
-        with self.client.get("/static/app.js") as script:
+        with self.client.get("/static/js/main.js") as script:
             self.assertEqual(script.status_code, 200)
         self.assertEqual(
             self.client.get("/static/vendor/qr-scanner/qr-scanner.umd.min.js").status_code,

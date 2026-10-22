@@ -9,7 +9,8 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v=static_asset_version('styles.css')) }}">
-  <script src="{{ url_for('static', filename='app.js', v=static_asset_version('app.js')) }}" defer></script>
+  <script type="importmap">{{ static_import_map() | tojson }}</script>
+  <script type="module" src="{{ url_for('static', filename='js/main.js', v=static_asset_version('js/main.js')) }}"></script>
 </head>
 <body>
   <div id="toast-region" class="toast-region" aria-live="polite"></div>

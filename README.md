@@ -15,8 +15,19 @@ acervo/
 ├── templates/
 │   └── index.html   # Interface do servidor
 └── static/
-    ├── app.js       # Interações da interface
-    ├── student.js  # Login e QR temporário do estudante
+    ├── js/
+    │   ├── main.js            # Inicialização e eventos globais
+    │   ├── state.js, dom.js   # Estado da interface e elementos
+    │   ├── api.js, utils.js   # Cliente HTTP, avisos e utilitários
+    │   ├── auth.js            # Login e sessão
+    │   ├── navigation.js      # Menu, abas e telas
+    │   ├── students.js        # Listagem, filtros, cadastro e importação
+    │   ├── student-detail.js  # Termo do estudante e seleção de entrega
+    │   ├── history.js         # Histórico e correções
+    │   ├── signature.js       # Assinatura em canvas
+    │   ├── print.js           # Impressão de termos e backups
+    │   ├── courses.js         # Cursos (opções e filtros)
+    │   └── admin.js           # Cursos, usuários e ano letivo
     └── styles.css   # Estilos
 server.py            # Inicialização e comando administrativo
 test_app.py          # Testes da aplicação

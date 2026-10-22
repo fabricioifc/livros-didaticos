@@ -3,7 +3,7 @@ import secrets
 from datetime import datetime
 from pathlib import Path
 
-from flask import Flask
+from flask import Flask, url_for
 
 from .controllers import main
 from .repository import get_school_year, initialize_db
@@ -30,7 +30,23 @@ def create_app(test_config=None):
         asset_path = Path(app.static_folder) / filename
         return str(asset_path.stat().st_mtime_ns)
 
+    def static_import_map():
+        # Módulos importados não passam pelo template; o import map
+        # aplica a eles o mesmo parâmetro de versão usado no main.js.
+        modules = sorted((Path(app.static_folder) / "js").glob("*.js"))
+        return {
+            "imports": {
+                url_for("static", filename=f"js/{module.name}"): url_for(
+                    "static",
+                    filename=f"js/{module.name}",
+                    v=static_asset_version(f"js/{module.name}"),
+                )
+                for module in modules
+            }
+        }
+
     app.jinja_env.globals["static_asset_version"] = static_asset_version
+    app.jinja_env.globals["static_import_map"] = static_import_map
     app.config["SCHOOL_YEAR"] = initialize_db(
         app.config["DATABASE_PATH"], app.config["SCHOOL_YEAR"]
     )
