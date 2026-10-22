@@ -172,11 +172,45 @@ def update_managed_user(user_id):
 @main.get("/api/students")
 @login_required
 def list_students():
-    school_year = current_app.config["SCHOOL_YEAR"]
+    current_year = current_app.config["SCHOOL_YEAR"]
+    requested_year = request.args.get("year", type=int)
+    school_year = requested_year or current_year
+    if school_year > current_year or school_year < 1900:
+        return json_error("Ano letivo inválido.", 400)
     students = services.get_students(
-        current_app.config["DATABASE_PATH"], request.args.get("q", ""), school_year
+        current_app.config["DATABASE_PATH"],
+        request.args.get("q", ""),
+        school_year,
+        exact_year=requested_year is not None,
     )
     return jsonify({"students": students, "school_year": school_year})
+
+
+@main.get("/api/school-years")
+@login_required
+def list_school_years():
+    years = services.get_school_years(
+        current_app.config["DATABASE_PATH"], current_app.config["SCHOOL_YEAR"]
+    )
+    return jsonify({"school_years": years})
+
+
+@main.post("/api/settings/school-year")
+@admin_required
+def update_school_year():
+    error = csrf_error()
+    if error:
+        return error
+    try:
+        school_year = services.update_school_year(
+            current_app.config["DATABASE_PATH"],
+            request_body().get("school_year"),
+            current_app.config["SCHOOL_YEAR"],
+        )
+    except services.ServiceError as error:
+        return handle_service_error(error)
+    current_app.config["SCHOOL_YEAR"] = school_year
+    return jsonify({"school_year": school_year})
 
 
 @main.post("/api/students")
@@ -307,6 +341,28 @@ def record_signature(enrollment, book_id, action):
             g.user_email,
             current_app.config["SCHOOL_YEAR"],
             request_body().get("enrollment_confirmation"),
+        )
+    except services.ServiceError as error:
+        return handle_service_error(error)
+    return jsonify(student)
+
+
+@main.post("/api/students/<enrollment>/books/checkout")
+@login_required
+def record_book_checkouts(enrollment):
+    error = csrf_error()
+    if error:
+        return error
+    body = request_body()
+    try:
+        student = services.sign_books(
+            current_app.config["DATABASE_PATH"],
+            enrollment,
+            body.get("book_ids"),
+            body.get("signature"),
+            g.user_email,
+            current_app.config["SCHOOL_YEAR"],
+            body.get("enrollment_confirmation"),
         )
     except services.ServiceError as error:
         return handle_service_error(error)

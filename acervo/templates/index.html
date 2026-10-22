@@ -89,7 +89,7 @@
         </div>
         <div class="content-card recent-card">
           <div class="card-heading"><div><h2>Estudantes</h2><p>Consulte os termos e acompanhe cada título.</p></div><button class="text-button" data-go="students">Ver todos <span>→</span></button></div>
-          <div class="table-toolbar"><label class="search-box"><span class="search-icon"></span><input id="dashboard-search" type="search" placeholder="Buscar por nome ou matrícula"></label><div class="grade-filter" id="dashboard-grade-filter"><button class="filter-chip is-selected" data-grade="all">Todas as turmas</button><button class="filter-chip" data-grade="1º">1º ano</button><button class="filter-chip" data-grade="2º">2º ano</button><button class="filter-chip" data-grade="3º">3º ano</button></div></div>
+          <div class="table-toolbar"><label class="search-box"><span class="search-icon"></span><input id="dashboard-search" type="search" placeholder="Buscar por nome ou matrícula"></label><div class="grade-filter" id="dashboard-grade-filter" data-grade-filter><button class="filter-chip is-selected" data-grade="all">Todas as turmas</button><button class="filter-chip" data-grade="1º">1º ano</button><button class="filter-chip" data-grade="2º">2º ano</button><button class="filter-chip" data-grade="3º">3º ano</button></div></div>
           <div class="table-scroll"><table><thead><tr><th>ESTUDANTE</th><th>MATRÍCULA</th><th>TURMA</th><th>ENTREGA DOS LIVROS</th><th>DEVOLUÇÃO</th><th></th></tr></thead><tbody id="dashboard-students"></tbody></table></div>
           <div class="empty-state" id="dashboard-empty" hidden><div class="empty-illustration">✳</div><strong>Nenhum estudante por aqui</strong><span>Cadastre um estudante para começar a registrar as entregas.</span><button class="button button--secondary" data-action="add-student">Cadastrar estudante</button></div>
           <div class="table-footer"><span id="dashboard-count">0 estudantes</span><span>Atualizado em tempo real</span></div>
@@ -100,7 +100,7 @@
       <section class="view view--students" id="students-view" hidden>
         <div class="page-heading page-heading--students"><div><span class="eyebrow">CADASTRO E ACOMPANHAMENTO</span><h1>Estudantes</h1><p>Gerencie os termos de entrega e devolução dos livros.</p></div><div class="page-heading__actions"><button class="button button--secondary" id="export-annual-backup-button" type="button"><span class="download-icon">↓</span> Exportar backup anual</button><a class="button button--secondary" id="download-students-template" href="/api/students/import-template"><span class="download-icon">↓</span> Baixar modelo CSV</a><button class="button button--secondary" id="import-students-button" type="button"><span class="import-icon">↑</span> Importar CSV</button><button class="button button--primary" id="add-student-button-list"><span class="plus-icon">+</span> Novo estudante</button><input id="students-csv-input" type="file" accept=".csv,text/csv" hidden></div></div>
         <div class="content-card all-students-card">
-          <div class="table-toolbar table-toolbar--students"><label class="search-box"><span class="search-icon"></span><input id="students-search" type="search" placeholder="Buscar por nome ou matrícula"></label><div class="grade-filter" id="students-grade-filter"><button class="filter-chip is-selected" data-grade="all">Todas as turmas</button><button class="filter-chip" data-grade="1º">1º ano</button><button class="filter-chip" data-grade="2º">2º ano</button><button class="filter-chip" data-grade="3º">3º ano</button></div></div>
+          <div class="table-toolbar table-toolbar--students"><label class="search-box"><span class="search-icon"></span><input id="students-search" type="search" placeholder="Buscar por nome ou matrícula"></label><div class="student-filter-groups"><div class="grade-filter" id="students-grade-filter" data-grade-filter><button class="filter-chip is-selected" data-grade="all">Todas as turmas</button><button class="filter-chip" data-grade="1º">1º ano</button><button class="filter-chip" data-grade="2º">2º ano</button><button class="filter-chip" data-grade="3º">3º ano</button></div><div class="grade-filter" id="student-status-filter"><button class="filter-chip is-selected" data-student-status="active">Ativos</button><button class="filter-chip" data-student-status="completed">Arquivados</button></div></div></div>
           <div class="table-scroll"><table><thead><tr><th>ESTUDANTE</th><th>MATRÍCULA</th><th>TURMA</th><th>ENTREGA DOS LIVROS</th><th>DEVOLUÇÃO</th><th></th></tr></thead><tbody id="students-table"></tbody></table></div>
           <div class="empty-state" id="students-empty" hidden><div class="empty-illustration">✳</div><strong>Nenhum resultado encontrado</strong><span>Experimente outro nome, matrícula ou turma.</span></div>
           <div class="table-footer"><span id="students-count">0 estudantes</span><span>Atualizado em tempo real</span></div>
@@ -111,6 +111,14 @@
       <section class="view view--users" id="users-view" hidden>
         <div class="page-heading">
           <div><span class="eyebrow">ADMINISTRAÇÃO</span><h1>Usuários</h1><p>Gerencie contas de servidores e permissões de acesso.</p></div>
+        </div>
+        <div class="content-card user-management-card school-year-settings-card">
+          <div class="card-heading"><div><h2>Ano letivo</h2><p>Ano atual: <strong id="admin-school-year-current"></strong>. Avançar cria os ciclos e promove os estudantes automaticamente.</p></div></div>
+          <form id="school-year-form" class="school-year-form">
+            <div><label class="field-label" for="school-year-input">Novo ano letivo</label><input class="text-input" id="school-year-input" type="number" min="2026" max="2100" step="1" required></div>
+            <label class="school-year-confirm"><input id="school-year-confirm" type="checkbox" required> Confirmo que revisei o novo ano. A alteração não pode ser desfeita.</label>
+            <button class="button button--primary" id="school-year-submit" type="submit">Atualizar ano</button>
+          </form>
         </div>
         <div class="content-card user-management-card">
           <form id="managed-user-form" class="managed-user-form">
@@ -138,16 +146,30 @@
     </form>
   </dialog>
 
+  <dialog id="annual-backup-dialog" class="dialog dialog--form">
+    <form id="annual-backup-form">
+      <div class="dialog-heading"><div><span class="eyebrow">EXPORTAÇÃO DE TERMOS</span><h2>Backup anual</h2><p>Escolha o ano letivo. Serão incluídos todos os termos daquele ano, inclusive de estudantes arquivados.</p></div><button class="dialog-close" type="button" data-close="annual-backup-dialog" aria-label="Fechar">×</button></div>
+      <label class="field-label" for="backup-school-year">Ano letivo</label>
+      <select class="text-input" id="backup-school-year" required></select>
+      <div class="dialog-actions"><button class="button button--secondary" type="button" data-close="annual-backup-dialog">Cancelar</button><button class="button button--primary" id="annual-backup-submit" type="submit">Exportar PDF <span>→</span></button></div>
+    </form>
+  </dialog>
+
   <dialog id="student-detail-dialog" class="dialog dialog--detail">
-    <div class="dialog-heading detail-heading"><div><span class="eyebrow">TERMO DE COMPROMISSO · <span id="detail-school-year"></span></span><h2 id="detail-name"></h2><p id="detail-meta"></p><label class="field-label" for="detail-year-select">Ciclo letivo</label><select class="text-input detail-year-select" id="detail-year-select" aria-label="Selecionar ciclo letivo"></select></div><div class="detail-header-actions"><button class="text-button" id="reset-student-access-button" type="button" hidden>Gerar acesso do aluno</button><button class="text-button" id="edit-student-button" type="button">Editar cadastro</button><button class="dialog-close" type="button" data-close="student-detail-dialog" aria-label="Fechar">×</button></div></div>
-    <div class="detail-progress"><div><span id="detail-progress-label">0 de 15 títulos entregues</span><button class="text-button" id="export-term-button">Exportar PDF <span>↗</span></button></div><div class="progress-track"><span id="detail-progress-bar"></span></div></div>
+    <div class="dialog-heading detail-heading"><div><span class="eyebrow">TERMO DE COMPROMISSO · <span id="detail-school-year"></span></span><h2 id="detail-name"></h2><p id="detail-meta"></p><label class="field-label" for="detail-year-select">Ciclo letivo</label><select class="text-input detail-year-select" id="detail-year-select" aria-label="Selecionar ciclo letivo"></select></div><div class="detail-header-actions"><button class="text-button" id="edit-student-button" type="button">Editar cadastro</button><button class="dialog-close" type="button" data-close="student-detail-dialog" aria-label="Fechar">×</button></div></div>
+    <div class="detail-progress"><div><span id="detail-progress-label">0 de 15 títulos entregues</span><span><button class="text-button" id="export-student-terms-button" type="button" hidden>Exportar todos os termos <span>↗</span></button> <button class="text-button" id="export-term-button">Exportar PDF <span>↗</span></button></span></div><div class="progress-track"><span id="detail-progress-bar"></span></div></div>
+    <section id="checkout-selection-bar" class="checkout-selection-bar" hidden>
+      <span id="checkout-selection-count">0 selecionados</span>
+      <div><button class="text-button" id="checkout-clear-selection" type="button">Limpar seleção</button><button class="button button--primary" id="checkout-selected-button" type="button" disabled>Assinar entrega dos selecionados</button></div>
+    </section>
     <div class="book-list" id="book-list"></div>
     <div class="detail-footer"><span><i class="legend-dot legend-dot--issued"></i>Entregue <i class="legend-dot legend-dot--returned"></i>Devolvido</span><button class="button button--secondary" type="button" data-close="student-detail-dialog">Concluir</button></div>
   </dialog>
 
   <dialog id="enrollment-confirmation-dialog" class="dialog dialog--form">
     <form id="enrollment-confirmation-form">
-      <div class="dialog-heading"><div><span class="eyebrow">CONFIRMAÇÃO DA ENTREGA</span><h2>Confirme a matrícula</h2><p>Peça ao estudante que informe a matrícula e digite-a para confirmar a entrega do livro.</p></div><button class="dialog-close" type="button" data-close="enrollment-confirmation-dialog" aria-label="Fechar">×</button></div>
+      <div class="dialog-heading"><div><span class="eyebrow">CONFIRMAÇÃO DA ENTREGA</span><h2>Livros selecionados</h2><p>Confira com o estudante os títulos abaixo. Peça que informe a matrícula e digite-a para seguir à assinatura única.</p></div><button class="dialog-close" type="button" data-close="enrollment-confirmation-dialog" aria-label="Fechar">×</button></div>
+      <ul id="checkout-selected-books" class="checkout-book-list"></ul>
       <p class="signature-consent"><strong id="checkout-student-name"></strong> · Matrícula cadastrada: <strong id="checkout-student-enrollment"></strong></p>
       <label class="field-label" for="enrollment-confirmation-input">Matrícula informada pelo estudante</label>
       <input class="text-input" id="enrollment-confirmation-input" type="text" maxlength="30" autocomplete="off" required>
@@ -157,7 +179,7 @@
 
   <dialog id="signature-dialog" class="dialog dialog--signature">
     <form id="signature-form" method="dialog">
-      <div class="dialog-heading"><div><span class="eyebrow" id="signature-eyebrow">ASSINATURA DO ESTUDANTE</span><h2 id="signature-title">Assine para confirmar</h2><p id="signature-book"></p></div><button class="dialog-close" type="button" data-close="signature-dialog" aria-label="Fechar">×</button></div>
+      <div class="dialog-heading"><div><span class="eyebrow" id="signature-eyebrow">ASSINATURA DO ESTUDANTE</span><h2 id="signature-title">Assine para confirmar</h2><ul id="signature-book" class="checkout-book-list signature-book-list"></ul></div><button class="dialog-close" type="button" data-close="signature-dialog" aria-label="Fechar">×</button></div>
       <div class="signature-pad-wrap"><canvas id="signature-canvas" aria-label="Área para desenhar a assinatura"></canvas><span class="signature-placeholder" id="signature-placeholder">Assine aqui com o dedo ou a caneta</span></div>
       <div class="signature-controls"><span>Assinatura manuscrita na tela</span><button class="text-button" type="button" id="clear-signature">Limpar</button></div>
       <p class="signature-consent" id="signature-consent">Ao assinar, o estudante confirma o recebimento deste título e se compromete com as regras de utilização do termo.</p>

@@ -109,6 +109,104 @@ class LibraryAppTest(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 400)
 
+    def test_admin_can_advance_school_year_and_setting_persists(self):
+        self.login()
+        self.client.post(
+            "/api/students",
+            json={"name": "Ana Silva", "enrollment": "2026001", "grade": "1º"},
+            headers={"X-CSRF-Token": self.csrf()},
+        )
+        denied = self.client.post(
+            "/api/settings/school-year",
+            json={"school_year": 2028},
+            headers={"X-CSRF-Token": self.csrf()},
+        )
+        self.assertEqual(denied.status_code, 403)
+
+        create_user(
+            self.app.config["DATABASE_PATH"],
+            "fabricio.bizotto@ifc.edu.br",
+            "senha-admin-segura",
+        )
+        admin = self.app.test_client()
+        admin_csrf = admin.get("/api/auth/session").get_json()["csrf_token"]
+        logged_in = admin.post(
+            "/api/auth/login",
+            json={
+                "email": "fabricio.bizotto@ifc.edu.br",
+                "password": "senha-admin-segura",
+            },
+            headers={"X-CSRF-Token": admin_csrf},
+        )
+        self.assertEqual(logged_in.status_code, 200)
+        admin_csrf = logged_in.get_json()["csrf_token"]
+        updated = admin.post(
+            "/api/settings/school-year",
+            json={"school_year": 2028},
+            headers={"X-CSRF-Token": admin_csrf},
+        )
+        self.assertEqual(updated.status_code, 200)
+        self.assertEqual(updated.get_json()["school_year"], 2028)
+        self.assertEqual(
+            admin.get("/api/students").get_json()["school_year"],
+            2028,
+        )
+        self.assertEqual(
+            len(admin.get("/api/students?year=2026").get_json()["students"]),
+            1,
+        )
+        historical_2027 = admin.get("/api/students?year=2027").get_json()["students"]
+        self.assertEqual([student["enrollment"] for student in historical_2027], ["2026001"])
+        self.assertEqual(
+            admin.get("/api/school-years").get_json()["school_years"],
+            [2028, 2027, 2026],
+        )
+        promoted_response = admin.get("/api/students/2026001")
+        self.assertEqual(promoted_response.status_code, 200, promoted_response.get_json())
+        promoted = promoted_response.get_json()
+        self.assertEqual(promoted["grade"], "3º", promoted)
+        self.assertEqual(promoted["school_year"], 2028)
+
+        created = admin.post(
+            "/api/students",
+            json={"name": "João Souza", "enrollment": "2028001", "grade": "1º"},
+            headers={"X-CSRF-Token": admin_csrf},
+        )
+        self.assertEqual(created.status_code, 201)
+        newcomer = admin.get("/api/students/2028001").get_json()
+        self.assertEqual(newcomer["grade"], "1º")
+        self.assertIn(
+            "portugues-2028-1",
+            {book["id"] for book in newcomer["books"]},
+        )
+
+        lower_year = admin.post(
+            "/api/settings/school-year",
+            json={"school_year": 2027},
+            headers={"X-CSRF-Token": admin_csrf},
+        )
+        self.assertEqual(lower_year.status_code, 409)
+        invalid_year = admin.post(
+            "/api/settings/school-year",
+            json={"school_year": 2101},
+            headers={"X-CSRF-Token": admin_csrf},
+        )
+        self.assertEqual(invalid_year.status_code, 400)
+
+        database_path = self.app.config["DATABASE_PATH"]
+        self.app = create_app(
+            {
+                "TESTING": True,
+                "SECRET_KEY": "test-only-secret-key-for-tests-32bytes",
+                "DATABASE_PATH": database_path,
+                "SCHOOL_YEAR": 2026,
+            }
+        )
+        self.client = self.app.test_client()
+        self.assertEqual(self.app.config["SCHOOL_YEAR"], 2028)
+        self.login()
+        self.assertEqual(self.client.get("/api/students").get_json()["school_year"], 2028)
+
     def test_checkout_requires_the_selected_students_enrollment(self):
         self.login()
         created = self.client.post(
@@ -145,6 +243,48 @@ class LibraryAppTest(unittest.TestCase):
             headers={"X-CSRF-Token": self.csrf()},
         )
         self.assertEqual(second_checkout.status_code, 200)
+
+    def test_multiple_books_can_be_checked_out_with_one_signature_atomically(self):
+        self.login()
+        self.client.post(
+            "/api/students",
+            json={"name": "Ana Silva", "enrollment": "2026001", "grade": "1º"},
+            headers={"X-CSRF-Token": self.csrf()},
+        )
+        signature = "data:image/png;base64," + base64.b64encode(
+            b"\x89PNG\r\n\x1a\nvalid-test-image"
+        ).decode()
+        path = "/api/students/2026001/books/checkout"
+        headers = {"X-CSRF-Token": self.csrf()}
+        body = {
+            "book_ids": ["portugues-2026-1", "matematica-2026-1"],
+            "signature": signature,
+            "enrollment_confirmation": "2026001",
+        }
+        checked_out = self.client.post(path, json=body, headers=headers)
+        self.assertEqual(checked_out.status_code, 200)
+        for book_id in body["book_ids"]:
+            history = self.client.get(
+                f"/api/students/2026001/books/{book_id}/history"
+            ).get_json()["history"]
+            self.assertEqual([entry["action"] for entry in history], ["checkout"])
+            self.assertEqual(history[0]["signature"], signature)
+
+        atomic_failure = self.client.post(
+            path,
+            json={
+                **body,
+                "book_ids": ["historia", "portugues-2026-1"],
+            },
+            headers=headers,
+        )
+        self.assertEqual(atomic_failure.status_code, 409)
+        student = self.client.get("/api/students/2026001").get_json()
+        history = {
+            book["id"]: book["checkout_signature"]
+            for book in student["books"]
+        }
+        self.assertIsNone(history["historia"])
 
     def test_book_signature_history_and_cancellation_preserve_all_events(self):
         self.login()
@@ -668,6 +808,15 @@ class LibraryAppTest(unittest.TestCase):
         self.assertEqual(self.client.get("/api/students/2026001?year=2029").status_code, 404)
         archived_term = self.client.get("/api/students/2026001").get_json()
         self.assertEqual(archived_term["school_year"], 2028)
+        archived_list = self.client.get("/api/students").get_json()["students"]
+        self.assertEqual(len(archived_list), 1)
+        self.assertEqual(archived_list[0]["status"], "completed")
+        self.assertEqual(archived_list[0]["grade"], "3º")
+        archived_year_term = self.client.get(
+            "/api/students?year=2028"
+        ).get_json()["students"]
+        self.assertEqual(len(archived_year_term), 1)
+        self.assertEqual(archived_year_term[0]["status"], "completed")
         archived_loan_return = self.client.put(
             "/api/students/2026001/books/ingles/return",
             json={"signature": signature},
@@ -765,7 +914,14 @@ class LibraryAppTest(unittest.TestCase):
         self.assertIn(b"Aviso de Privacidade", page.data)
         self.assertRegex(page.data, rb"/static/styles\.css\?v=\d+")
         self.assertRegex(page.data, rb"/static/app\.js\?v=\d+")
-        self.assertIn(b"Confirme a matr\xc3\xadcula", page.data)
+        self.assertIn(b"Livros selecionados", page.data)
+        self.assertIn(b"signature-book", page.data)
+        self.assertIn(b'data-student-status="completed"', page.data)
+        self.assertIn(b'id="annual-backup-form"', page.data)
+        self.assertIn(b'id="export-student-terms-button"', page.data)
+        self.assertNotIn(b"Gerar acesso do aluno", page.data)
+        self.assertIn(b'id="admin-school-year-current"', page.data)
+        self.assertIn(b'id="school-year-form"', page.data)
         self.assertNotIn(b"QR Code", page.data)
         privacy = self.client.get("/privacidade")
         self.assertEqual(privacy.status_code, 200)

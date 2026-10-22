@@ -116,12 +116,13 @@ Para atualizar as imagens após mudanças, execute `docker compose up --build -d
 
 - Cadastre cada estudante com nome, matrícula única e ano (1º, 2º ou 3º).
 - Na tela **Estudantes**, use **Baixar modelo CSV** para obter uma planilha vazia com os cabeçalhos `matricula`, `nome` e `turma`; preencha-a e importe pelo botão **Importar CSV**. A turma pode ser `1`, `1º`, `1°` ou `1º ano` (equivalente para 2º e 3º). Também são aceitos arquivos separados por vírgula ou tabulação e o cabeçalho `matrícula`. Linhas com matrícula já cadastrada, inclusive repetidas no mesmo arquivo, são ignoradas; linhas inválidas são informadas ao final.
-- Abra o termo para registrar a assinatura manuscrita do estudante em cada título entregue. Antes da assinatura, solicite a matrícula verbalmente e digite-a para confirmar que corresponde ao cadastro selecionado.
+- Abra o termo, selecione um ou mais livros pendentes e escolha **Assinar entrega dos selecionados**. O estudante vê a lista dos títulos no passo de confirmação e novamente na tela de assinatura; a mesma assinatura é registrada em cada livro selecionado. Antes de assinar, solicite a matrícula verbalmente e digite-a para confirmar que corresponde ao cadastro selecionado.
 - Na tela da assinatura ou ao lado de cada livro, abra **Ver histórico e corrigir registro** / **Histórico** para consultar assinaturas, devoluções e correções anteriores. Se uma entrega ou devolução foi registrada por engano ou a assinatura precisa ser refeita, cancele o registro ativo e informe o motivo. O histórico original não é apagado; cada cancelamento também registra data, servidor responsável e justificativa. Para cancelar uma entrega que já tem devolução registrada, cancele primeiro a devolução.
 - O portal do estudante, a autenticação estudantil e a verificação por QR Code estão desativados. A matrícula informada pelo estudante é digitada pelo servidor no modal antes de iniciar a assinatura da entrega. O sistema também valida no servidor se o valor digitado corresponde à matrícula selecionada. Dados de credenciais antigos, se presentes em um banco existente, são preservados sem uso pela aplicação.
 - Na devolução, o servidor registra a assinatura título por título. A devolução só fica disponível depois da entrega.
-- Use **Exportar PDF** e escolha **Salvar como PDF** no diálogo de impressão do navegador. O termo inclui o registro de cada assinatura já feita e os espaços ainda pendentes.
-- Na tela **Estudantes**, use **Exportar backup anual** para reunir em um único PDF todos os termos do ano letivo atual com o status de entrega/devolução vigente. No diálogo de impressão, selecione **Salvar como PDF**; cada termo começa em uma nova página. Estudantes concluídos em anos anteriores, sem termo no ciclo atual, não são incluídos.
+- Estudantes que concluíram o 3º ano ficam arquivados e aparecem na tela **Estudantes** pelo filtro **Arquivados**, em vez de aparecerem como estudantes ativos do 3º ano.
+- Use **Exportar PDF** para salvar o termo do ano selecionado. Para exportar juntos todos os termos de um estudante, inclusive os três ciclos de quem concluiu o Ensino Médio, abra o estudante e use **Exportar todos os termos**.
+- Na tela **Estudantes**, **Exportar backup anual** permite selecionar o ano e reúne em um único PDF todos os termos daquele ciclo, incluindo estudantes arquivados que estudaram naquele ano. No diálogo de impressão, selecione **Salvar como PDF**; cada termo começa em uma nova página.
 
 Exemplo de CSV (UTF-8, cabeçalhos na primeira linha):
 
@@ -135,7 +136,7 @@ Cada ano letivo tem seu próprio termo. Ao iniciar um novo ano, estudantes ativo
 
 Português e Matemática são específicos da turma e do ano letivo. Os outros 13 títulos são volumes únicos: um empréstimo ainda não devolvido acompanha o estudante nos ciclos seguintes, sem gerar uma nova assinatura de entrega. Títulos já devolvidos não são reemitidos automaticamente. Ao corrigir a turma no ciclo atual, os novos volumes anuais são acrescentados sem apagar assinaturas anteriores. Cada assinatura é registrada com data e hora; a devolução também guarda o e-mail do servidor autenticado.
 
-O ano letivo é controlado por `SCHOOL_YEAR` (por padrão, o ano corrente). É possível defini-lo explicitamente no ambiente para ajustar o calendário escolar; a mudança para um ano posterior cria os ciclos e promoções faltantes na próxima inicialização do app. Não reduza o ano configurado depois que os ciclos futuros tiverem sido criados.
+O ano letivo inicial vem de `SCHOOL_YEAR` (por padrão, o ano corrente) e fica persistido no banco. Um administrador também pode alterá-lo na seção **Usuários → Ano letivo**: ao avançar, a aplicação cria imediatamente os ciclos e promoções faltantes; depois, novos ingressantes podem ser cadastrados/importados como 1º ano. A alteração vale para todos os servidores e persiste após reinícios, prevalecendo sobre uma variável de ambiente anterior. Não é permitido voltar para um ano menor, pois isso poderia reativar termos arquivados ou desfazer promoções; confira o ano antes de confirmar.
 
 ## Autenticação e usuários
 

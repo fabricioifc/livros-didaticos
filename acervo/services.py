@@ -82,12 +82,39 @@ def update_managed_user(database_path, target_id, body, current_user_id):
     return next(user for user in repository.list_users(database_path) if user["id"] == target_id)
 
 
-def get_students(database_path, query, school_year):
-    return repository.list_students(database_path, query.strip()[:100], school_year)
+def get_students(database_path, query, school_year, exact_year=False):
+    return repository.list_students(
+        database_path, query.strip()[:100], school_year, exact_year
+    )
+
+
+def get_school_years(database_path, current_year):
+    return repository.list_school_years(database_path, current_year)
 
 
 def get_student(database_path, enrollment, school_year=None):
     return repository.find_student(database_path, enrollment, school_year)
+
+
+def update_school_year(database_path, value, current_year):
+    if isinstance(value, bool) or not isinstance(value, int) or not 1900 <= value <= 2100:
+        raise ServiceError("Informe um ano letivo válido entre 1900 e 2100.", 400)
+    if value < current_year:
+        raise ServiceError(
+            "Não é possível voltar para um ano anterior, pois os ciclos letivos e "
+            "arquivamentos já criados não podem ser desfeitos.",
+            409,
+        )
+    try:
+        result = repository.update_school_year(database_path, value)
+    except ValueError as error:
+        raise ServiceError(str(error), 409) from error
+    if result == "cannot_decrease":
+        raise ServiceError(
+            "O ano letivo já foi atualizado por outra solicitação. Atualize a página.",
+            409,
+        )
+    return value
 
 
 def create_student(database_path, body, school_year):
@@ -299,3 +326,51 @@ def sign_book(
     return repository.find_student(database_path, enrollment, school_year) or repository.find_student(
         database_path, enrollment
     )
+
+
+def sign_books(
+    database_path,
+    enrollment,
+    book_ids,
+    signature,
+    server_email,
+    school_year,
+    enrollment_confirmation,
+):
+    if not isinstance(book_ids, list) or not 1 <= len(book_ids) <= 30:
+        raise ServiceError("Selecione pelo menos um livro para registrar a entrega.", 400)
+    if any(not isinstance(book_id, str) or not book_id for book_id in book_ids):
+        raise ServiceError("A seleção de livros é inválida.", 400)
+    if len(set(book_ids)) != len(book_ids):
+        raise ServiceError("A seleção contém livros repetidos.", 400)
+    student = repository.find_student(database_path, enrollment, school_year)
+    if not student or student["status"] != "active":
+        raise ServiceError("Não é possível registrar uma entrega fora do ciclo letivo ativo.", 409)
+    if (
+        not isinstance(enrollment_confirmation, str)
+        or enrollment_confirmation.strip() != enrollment
+    ):
+        raise ServiceError(
+            "A matrícula informada não corresponde ao estudante selecionado.",
+            400,
+        )
+    if not validate_signature(signature):
+        raise ServiceError("A assinatura está inválida ou vazia.", 400)
+    result = repository.record_signatures(
+        database_path,
+        enrollment,
+        book_ids,
+        signature,
+        now_iso(),
+        server_email,
+        school_year,
+    )
+    errors = {
+        "book_not_found": "Um dos livros selecionados não pertence ao termo deste estudante.",
+        "wrong_school_year": "Um dos livros selecionados não pode ser entregue neste ano letivo.",
+        "already_checked_out": "Um dos livros selecionados já foi entregue.",
+    }
+    if result:
+        error, _book_id = result
+        raise ServiceError(errors[error], 409 if error != "book_not_found" else 404)
+    return repository.find_student(database_path, enrollment, school_year)

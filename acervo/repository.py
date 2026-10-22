@@ -39,6 +39,10 @@ def initialize_db(database_path, school_year):
                 grade TEXT NOT NULL CHECK (grade IN ('1º', '2º', '3º')),
                 created_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS application_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS book_signatures (
                 enrollment TEXT NOT NULL REFERENCES students(enrollment) ON DELETE CASCADE,
                 book_id TEXT NOT NULL,
@@ -98,9 +102,20 @@ def initialize_db(database_path, school_year):
             "UPDATE users SET is_admin = 1 WHERE lower(email) = ?",
             ("fabricio.bizotto@ifc.edu.br",),
         )
+        stored_year = db.execute(
+            "SELECT value FROM application_settings WHERE key = 'school_year'"
+        ).fetchone()
+        school_year = max(
+            school_year, int(stored_year["value"]) if stored_year else school_year
+        )
         _migrate_legacy_book_ids(db)
         _initialize_school_years(db, school_year)
         _backfill_school_year_books(db)
+        db.execute(
+            """INSERT INTO application_settings (key, value) VALUES ('school_year', ?)
+               ON CONFLICT(key) DO UPDATE SET value = excluded.value""",
+            (str(school_year),),
+        )
         db.execute(
             """INSERT INTO book_signature_history
                    (enrollment, book_id, school_year, action, signature, recorded_at, actor_email)
@@ -127,6 +142,34 @@ def initialize_db(database_path, school_year):
                        AND h.action = 'return'
                  )"""
         )
+    return school_year
+
+
+def get_school_year(database_path, fallback):
+    with database(database_path) as db:
+        row = db.execute(
+            "SELECT value FROM application_settings WHERE key = 'school_year'"
+        ).fetchone()
+    return int(row["value"]) if row else fallback
+
+
+def update_school_year(database_path, school_year):
+    with database(database_path) as db:
+        db.execute("BEGIN IMMEDIATE")
+        current = db.execute(
+            "SELECT value FROM application_settings WHERE key = 'school_year'"
+        ).fetchone()
+        current_year = int(current["value"]) if current else school_year
+        if school_year < current_year:
+            return "cannot_decrease"
+        _initialize_school_years(db, school_year)
+        _backfill_school_year_books(db)
+        db.execute(
+            """INSERT INTO application_settings (key, value) VALUES ('school_year', ?)
+               ON CONFLICT(key) DO UPDATE SET value = excluded.value""",
+            (str(school_year),),
+        )
+    return None
 
 
 def _migrate_legacy_book_ids(db):
@@ -469,7 +512,17 @@ def find_student(database_path, enrollment, school_year=None):
     }
 
 
-def list_students(database_path, query, school_year):
+def list_students(database_path, query, school_year, exact_year=False):
+    year_join = (
+        "y.enrollment = s.enrollment AND y.school_year = ?"
+        if exact_year
+        else """y.enrollment = s.enrollment AND y.school_year = COALESCE(
+                   (SELECT MAX(active_year.school_year) FROM student_years active_year
+                    WHERE active_year.enrollment = s.enrollment AND active_year.school_year <= ?),
+                   (SELECT MAX(last_year.school_year) FROM student_years last_year
+                    WHERE last_year.enrollment = s.enrollment)
+               )"""
+    )
     with database(database_path) as db:
         rows = db.execute(
             """SELECT s.enrollment, s.name, COALESCE(y.grade, s.grade) AS grade,
@@ -479,17 +532,12 @@ def list_students(database_path, query, school_year):
                       SUM(CASE WHEN b.checkout_signature IS NOT NULL AND b.return_signature IS NULL
                                THEN 1 ELSE 0 END) AS awaiting_return
                FROM students s
-               LEFT JOIN student_years y ON y.enrollment = s.enrollment AND y.school_year = COALESCE(
-                   (SELECT MAX(active_year.school_year) FROM student_years active_year
-                    WHERE active_year.enrollment = s.enrollment AND active_year.school_year <= ?),
-                   (SELECT MAX(last_year.school_year) FROM student_years last_year
-                    WHERE last_year.enrollment = s.enrollment)
-               )
+               LEFT JOIN student_years y ON """ + year_join + """
                LEFT JOIN student_year_books yb
                  ON yb.enrollment = y.enrollment AND yb.school_year = y.school_year
                LEFT JOIN book_signatures b
                  ON b.enrollment = yb.enrollment AND b.book_id = yb.book_id
-               WHERE s.name LIKE ? OR s.enrollment LIKE ?
+               WHERE y.school_year IS NOT NULL AND (s.name LIKE ? OR s.enrollment LIKE ?)
                GROUP BY s.enrollment
                ORDER BY s.name COLLATE NOCASE""",
             (
@@ -506,6 +554,16 @@ def list_students(database_path, query, school_year):
         }
         for row in rows
     ]
+
+
+def list_school_years(database_path, current_year):
+    with database(database_path) as db:
+        rows = db.execute(
+            "SELECT DISTINCT school_year FROM student_years ORDER BY school_year DESC"
+        ).fetchall()
+    years = {row["school_year"] for row in rows}
+    years.add(current_year)
+    return sorted(years, reverse=True)
 
 
 def record_signature(
@@ -556,6 +614,54 @@ def record_signature(
                 """INSERT INTO book_signature_history
                        (enrollment, book_id, school_year, action, signature, recorded_at, actor_email)
                    VALUES (?, ?, ?, 'return', ?, ?, ?)""",
+                (enrollment, book_id, school_year, signature, signed_at, actor_email),
+            )
+    return None
+
+
+def record_signatures(
+    database_path,
+    enrollment,
+    book_ids,
+    signature,
+    signed_at,
+    actor_email,
+    school_year,
+):
+    placeholders = ", ".join("?" for _ in book_ids)
+    with database(database_path) as db:
+        db.execute("BEGIN IMMEDIATE")
+        rows = db.execute(
+            f"""SELECT b.book_id, b.title, b.issue_year, b.checkout_signature,
+                       yb.book_id AS assigned_book_id
+                FROM book_signatures b
+                LEFT JOIN student_year_books yb
+                  ON yb.enrollment = b.enrollment
+                 AND yb.school_year = ?
+                 AND yb.book_id = b.book_id
+                WHERE b.enrollment = ? AND b.book_id IN ({placeholders})""",
+            (school_year, enrollment, *book_ids),
+        ).fetchall()
+        books = {row["book_id"]: row for row in rows}
+        for book_id in book_ids:
+            book = books.get(book_id)
+            if not book or not book["assigned_book_id"]:
+                return "book_not_found", book_id
+            if book["issue_year"] != school_year:
+                return "wrong_school_year", book_id
+            if book["checkout_signature"]:
+                return "already_checked_out", book_id
+
+        for book_id in book_ids:
+            db.execute(
+                """UPDATE book_signatures SET checkout_signature = ?, checkout_at = ?
+                   WHERE enrollment = ? AND book_id = ?""",
+                (signature, signed_at, enrollment, book_id),
+            )
+            db.execute(
+                """INSERT INTO book_signature_history
+                       (enrollment, book_id, school_year, action, signature, recorded_at, actor_email)
+                   VALUES (?, ?, ?, 'checkout', ?, ?, ?)""",
                 (enrollment, book_id, school_year, signature, signed_at, actor_email),
             )
     return None

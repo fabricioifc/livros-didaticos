@@ -8,9 +8,12 @@ const state = {
   students: [],
   view: "dashboard",
   grade: "all",
+  studentStatus: "active",
   currentStudent: null,
+  selectedCheckoutBooks: new Set(),
   editingStudent: null,
   signatureBook: null,
+  signatureBooks: [],
   signatureAction: "checkout",
   enrollmentConfirmation: "",
   historyBook: null,
@@ -113,6 +116,9 @@ async function refreshStudents() {
   const data = await api("/api/students");
   state.schoolYear = data.school_year;
   $("#school-year-label").textContent = String(data.school_year);
+  $("#admin-school-year-current").textContent = String(data.school_year);
+  $("#school-year-input").value = String(data.school_year);
+  $("#school-year-input").min = String(data.school_year);
   $$(".school-year-footer").forEach((element) => {
     element.textContent = String(data.school_year);
   });
@@ -143,18 +149,21 @@ function rowMarkup(student) {
   return `<tr>
     <td><button class="student-name-button" data-action="detail" data-enrollment="${escapeHtml(student.enrollment)}"><span class="student-avatar">${escapeHtml(initials)}</span><span class="student-name">${escapeHtml(student.name)}</span></button></td>
     <td class="mono-cell">${escapeHtml(student.enrollment)}</td>
-    <td><span class="grade-pill">${escapeHtml(student.grade)} ano</span></td>
+    <td>${student.status === "completed"
+    ? '<span class="archived-pill">Arquivado</span>'
+    : `<span class="grade-pill">${escapeHtml(student.grade)} ano</span>`}</td>
     <td><span class="${checkoutClass}"><i></i>${escapeHtml(progress.label)}</span></td>
     <td><span class="${returnClass}"><i></i>${escapeHtml(progress.returnLabel)}</span></td>
     <td><button class="row-action" data-action="detail" data-enrollment="${escapeHtml(student.enrollment)}" aria-label="Abrir termo de ${escapeHtml(student.name)}">→</button></td>
   </tr>`;
 }
 
-function renderTable(table, empty, count, query = "") {
+function renderTable(table, empty, count, query = "", status = "active") {
   const filtered = state.students.filter((student) => {
-    const matchesGrade = state.grade === "all" || student.grade === state.grade;
+    const matchesStatus = student.status === status;
+    const matchesGrade = status === "completed" || state.grade === "all" || student.grade === state.grade;
     const text = `${student.name} ${student.enrollment}`.toLowerCase();
-    return matchesGrade && text.includes(query.toLowerCase().trim());
+    return matchesStatus && matchesGrade && text.includes(query.toLowerCase().trim());
   });
   table.innerHTML = filtered.map(rowMarkup).join("");
   empty.hidden = filtered.length > 0;
@@ -164,18 +173,19 @@ function renderTable(table, empty, count, query = "") {
 }
 
 function renderStudents() {
-  const dashboard = renderTable($("#dashboard-students"), $("#dashboard-empty"), $("#dashboard-count"), $("#dashboard-search").value);
-  const list = renderTable($("#students-table"), $("#students-empty"), $("#students-count"), $("#students-search").value);
-  const issued = state.students.reduce((total, student) => total + bookCounts(student).issued, 0);
-  const awaiting = state.students.reduce((total, student) => total + bookCounts(student).awaiting, 0);
-  const returned = state.students.reduce((total, student) => total + bookCounts(student).returned, 0);
-  const total = state.students.reduce((sum, student) => sum + bookCounts(student).total, 0);
-  $("#metric-students").textContent = String(state.students.length);
+  const activeStudents = state.students.filter((student) => student.status === "active");
+  const dashboard = renderTable($("#dashboard-students"), $("#dashboard-empty"), $("#dashboard-count"), $("#dashboard-search").value, "active");
+  const list = renderTable($("#students-table"), $("#students-empty"), $("#students-count"), $("#students-search").value, state.studentStatus);
+  const issued = activeStudents.reduce((total, student) => total + bookCounts(student).issued, 0);
+  const awaiting = activeStudents.reduce((total, student) => total + bookCounts(student).awaiting, 0);
+  const returned = activeStudents.reduce((total, student) => total + bookCounts(student).returned, 0);
+  const total = activeStudents.reduce((sum, student) => sum + bookCounts(student).total, 0);
+  $("#metric-students").textContent = String(activeStudents.length);
   $("#metric-issued").textContent = String(issued);
   $("#metric-total").textContent = String(total);
   $("#metric-awaiting").textContent = String(awaiting);
-  $("#metric-complete").textContent = String(total > 0 && returned === total ? state.students.length : state.students.filter((student) => bookCounts(student).returned === bookCounts(student).total && bookCounts(student).returned > 0).length);
-  $("#nav-student-count").textContent = String(state.students.length);
+  $("#metric-complete").textContent = String(activeStudents.filter((student) => bookCounts(student).returned === bookCounts(student).total && bookCounts(student).returned > 0).length);
+  $("#nav-student-count").textContent = String(activeStudents.length);
   $("#dashboard-empty").hidden = dashboard.length > 0;
   $("#students-empty").hidden = list.length > 0;
 }
@@ -251,6 +261,7 @@ async function openStudent(enrollment) {
   try {
     const record = await api(`/api/students/${encodeURIComponent(enrollment)}`);
     state.currentStudent = { ...student, ...record };
+    state.selectedCheckoutBooks.clear();
   } catch (error) {
     notify(error.message, "error");
     return;
@@ -265,6 +276,7 @@ async function selectStudentYear(year) {
   try {
     const record = await api(`/api/students/${encodeURIComponent(enrollment)}?year=${year}`);
     state.currentStudent = { ...state.currentStudent, ...record };
+    state.selectedCheckoutBooks.clear();
     renderStudentDetail();
   } catch (error) {
     notify(error.message, "error");
@@ -303,11 +315,17 @@ function renderStudentDetail() {
   ).join("");
   yearSelect.value = String(student.school_year);
   $("#edit-student-button").hidden = student.school_year !== state.schoolYear || student.status !== "active";
-  $("#reset-student-access-button").hidden = !state.isAdmin;
+  $("#export-student-terms-button").hidden = student.years.length < 2;
   $("#detail-name").textContent = student.name;
-  $("#detail-meta").textContent = `Matrícula ${student.enrollment} · ${student.grade} ano`;
+  $("#detail-meta").textContent = student.status === "completed"
+    ? `Matrícula ${student.enrollment} · Arquivado`
+    : `Matrícula ${student.enrollment} · ${student.grade} ano`;
   $("#detail-progress-label").textContent = `${counts.issued} de ${counts.total} títulos entregues`;
   $("#detail-progress-bar").style.width = `${counts.total ? Math.round((counts.issued / counts.total) * 100) : 0}%`;
+  const canCheckout = student.school_year === state.schoolYear && student.status === "active";
+  $("#checkout-selection-bar").hidden = !canCheckout;
+  $("#checkout-selection-count").textContent = `${state.selectedCheckoutBooks.size} selecionado${state.selectedCheckoutBooks.size === 1 ? "" : "s"}`;
+  $("#checkout-selected-button").disabled = state.selectedCheckoutBooks.size === 0;
   $("#book-list").innerHTML = student.books.map((book) => {
     const returned = Boolean(book.return_signature);
     const issued = Boolean(book.checkout_signature);
@@ -321,8 +339,8 @@ function renderStudentDetail() {
       ? '<span class="book-done">Concluído <span>✓</span></span>'
       : issued
         ? `<button class="book-action book-action--return" data-action="sign-return" data-book="${escapeHtml(book.id)}"><span class="book-action-icon">↩</span> Registrar devolução</button>`
-        : student.school_year === state.schoolYear && student.status === "active"
-          ? `<button class="book-action" data-action="sign-checkout" data-book="${escapeHtml(book.id)}"><span class="book-action-icon">✎</span> Assinar entrega</button>`
+        : canCheckout && book.issue_year === student.school_year
+          ? `<label class="book-select"><input type="checkbox" data-action="select-checkout-book" data-book="${escapeHtml(book.id)}" ${state.selectedCheckoutBooks.has(book.id) ? "checked" : ""}><span>Selecionar para entrega</span></label>`
           : '<span class="book-done">Somente consulta</span>';
     return `<article class="book-row">
       <div class="book-info"><span class="book-index">${String(student.books.indexOf(book) + 1).padStart(2, "0")}</span><div><strong>${escapeHtml(book.title)}</strong>${carryNotice}${status}</div></div>
@@ -423,27 +441,43 @@ async function cancelBookRecord(action) {
   }
 }
 
-function openSignature(bookId, action, enrollmentConfirmation = "") {
+function openSignature(bookId, action, enrollmentConfirmation = "", bookIds = []) {
   const book = state.currentStudent.books.find((item) => item.id === bookId);
-  state.signatureBook = book;
+  state.signatureBook = book || null;
+  state.signatureBooks = bookIds.length
+    ? state.currentStudent.books.filter((item) => bookIds.includes(item.id))
+    : book ? [book] : [];
+  state.signatureBook = state.signatureBooks.length === 1 ? state.signatureBooks[0] : null;
   state.signatureAction = action;
   state.enrollmentConfirmation = enrollmentConfirmation;
   state.hasSignature = false;
   $("#signature-eyebrow").textContent = action === "checkout" ? "ASSINATURA DO ESTUDANTE" : "ASSINATURA DO SERVIDOR";
-  $("#signature-title").textContent = action === "checkout" ? "Assine para confirmar" : "Assine a devolução";
-  $("#signature-book").textContent = book.title;
+  $("#signature-title").textContent = action === "checkout"
+    ? `Assine para retirar ${state.signatureBooks.length} ${state.signatureBooks.length === 1 ? "livro" : "livros"}`
+    : "Assine a devolução";
+  $("#signature-book").innerHTML = state.signatureBooks
+    .map((item) => `<li>${escapeHtml(item.title)}</li>`)
+    .join("");
   $("#signature-consent").textContent = action === "checkout"
-    ? "Ao assinar, o estudante confirma o recebimento deste título e se compromete com as regras de utilização do termo."
+    ? `Ao assinar, o estudante confirma o recebimento dos ${state.signatureBooks.length === 1 ? "livro listado" : "livros listados"} acima e se compromete com as regras de utilização do termo.`
     : `Ao assinar, você confirma a devolução deste título por ${state.currentStudent.name}.`;
   $("#signature-placeholder").textContent = action === "checkout" ? "Assine aqui com o dedo ou a caneta" : "Assinatura do servidor";
+  $("#signature-history-button").hidden = state.signatureBooks.length !== 1;
   elements.signatureDialog.showModal();
   window.requestAnimationFrame(resizeCanvas);
 }
 
-function openCheckoutConfirmation(bookId) {
-  state.signatureBook = state.currentStudent.books.find((item) => item.id === bookId);
+function openCheckoutConfirmation() {
+  const books = state.currentStudent.books.filter((book) =>
+    state.selectedCheckoutBooks.has(book.id)
+  );
+  if (!books.length) return;
+  state.signatureBooks = books;
   $("#checkout-student-name").textContent = state.currentStudent.name;
   $("#checkout-student-enrollment").textContent = state.currentStudent.enrollment;
+  $("#checkout-selected-books").innerHTML = books
+    .map((book) => `<li>${escapeHtml(book.title)}</li>`)
+    .join("");
   $("#enrollment-confirmation-input").value = "";
   elements.enrollmentDialog.showModal();
   $("#enrollment-confirmation-input").focus();
@@ -548,16 +582,47 @@ function buildPrintTerm(student) {
 }
 
 async function exportAnnualBackup() {
-  const button = $("#export-annual-backup-button");
+  try {
+    const { school_years: years } = await api("/api/school-years");
+    $("#backup-school-year").innerHTML = years
+      .map((year) => `<option value="${year}" ${year === state.schoolYear ? "selected" : ""}>${year}</option>`)
+      .join("");
+    $("#annual-backup-dialog").showModal();
+  } catch (error) {
+    notify(error.message, "error");
+  }
+}
+
+async function printAnnualBackup(year) {
+  const button = $("#annual-backup-submit");
   button.disabled = true;
   try {
-    await refreshStudents();
-    const currentTerms = state.students.filter((student) => student.school_year === state.schoolYear);
-    if (!currentTerms.length) {
-      notify(`Não há termos registrados para ${state.schoolYear}.`, "error");
+    const { students } = await api(`/api/students?year=${encodeURIComponent(year)}`);
+    if (!students.length) {
+      notify(`Não há termos registrados para ${year}.`, "error");
       return;
     }
-    printTerms(currentTerms, `backup-termos-${state.schoolYear}`);
+    const terms = await Promise.all(students.map((student) =>
+      api(`/api/students/${encodeURIComponent(student.enrollment)}?year=${encodeURIComponent(year)}`)
+    ));
+    printTerms(terms, `backup-termos-${year}`);
+    $("#annual-backup-dialog").close();
+  } catch (error) {
+    notify(error.message, "error");
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function exportStudentTerms() {
+  if (!state.currentStudent) return;
+  const button = $("#export-student-terms-button");
+  button.disabled = true;
+  try {
+    const terms = await Promise.all(state.currentStudent.years.map((year) =>
+      api(`/api/students/${encodeURIComponent(state.currentStudent.enrollment)}?year=${encodeURIComponent(year.school_year)}`)
+    ));
+    printTerms(terms, `termos-${state.currentStudent.enrollment}`);
   } catch (error) {
     notify(error.message, "error");
   } finally {
@@ -571,6 +636,7 @@ async function refreshCurrentStudent() {
   const year = state.currentStudent.school_year;
   const record = await api(`/api/students/${encodeURIComponent(enrollment)}?year=${year}`);
   state.currentStudent = { ...state.students.find((student) => student.enrollment === enrollment), ...record };
+  state.selectedCheckoutBooks.clear();
   if (state.historyBook) {
     state.historyBook = state.currentStudent.books.find((book) => book.id === state.historyBook.id);
   }
@@ -666,20 +732,29 @@ $$("[data-go]").forEach((button) => button.addEventListener("click", () => setVi
 $("#menu-button").addEventListener("click", () => $("#sidebar").classList.toggle("is-open"));
 $("#dashboard-search").addEventListener("input", renderStudents);
 $("#students-search").addEventListener("input", renderStudents);
-$$(".grade-filter").forEach((filter) => filter.addEventListener("click", (event) => {
+$$(".grade-filter[data-grade-filter]").forEach((filter) => filter.addEventListener("click", (event) => {
   const button = event.target.closest("[data-grade]");
   if (!button) return;
   state.grade = button.dataset.grade;
-  $$(".grade-filter").forEach((group) => $$(".filter-chip", group).forEach((chip) => chip.classList.toggle("is-selected", chip.dataset.grade === state.grade)));
+  $$(".grade-filter[data-grade-filter]").forEach((group) => $$(".filter-chip", group).forEach((chip) => chip.classList.toggle("is-selected", chip.dataset.grade === state.grade)));
   renderStudents();
 }));
+$("#student-status-filter").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-student-status]");
+  if (!button) return;
+  state.studentStatus = button.dataset.studentStatus;
+  if (state.studentStatus === "completed") state.grade = "all";
+  $$("#student-status-filter [data-student-status]").forEach((chip) =>
+    chip.classList.toggle("is-selected", chip.dataset.studentStatus === state.studentStatus)
+  );
+  renderStudents();
+});
 
 document.addEventListener("click", (event) => {
   const target = event.target.closest("[data-action]");
   if (!target) return;
   if (target.dataset.action === "detail") openStudent(target.dataset.enrollment);
   if (target.dataset.action === "add-student") openNewStudent();
-  if (target.dataset.action === "sign-checkout") openCheckoutConfirmation(target.dataset.book);
   if (target.dataset.action === "sign-return") openSignature(target.dataset.book, "return");
   if (target.dataset.action === "book-history") openBookHistory(target.dataset.book);
   if (target.dataset.action === "save-user") saveManagedUser(target.closest("tr"));
@@ -694,12 +769,29 @@ $("#enrollment-confirmation-form").addEventListener("submit", (event) => {
     return;
   }
   elements.enrollmentDialog.close();
-  openSignature(state.signatureBook.id, "checkout", enrollment);
+  openSignature(null, "checkout", enrollment, state.signatureBooks.map((book) => book.id));
+});
+$("#book-list").addEventListener("change", (event) => {
+  const checkbox = event.target.closest('[data-action="select-checkout-book"]');
+  if (!checkbox) return;
+  if (checkbox.checked) state.selectedCheckoutBooks.add(checkbox.dataset.book);
+  else state.selectedCheckoutBooks.delete(checkbox.dataset.book);
+  renderStudentDetail();
+});
+$("#checkout-selected-button").addEventListener("click", openCheckoutConfirmation);
+$("#checkout-clear-selection").addEventListener("click", () => {
+  state.selectedCheckoutBooks.clear();
+  renderStudentDetail();
 });
 
 $$("[data-close]").forEach((button) => button.addEventListener("click", () => $(`#${button.dataset.close}`).close()));
 $("#export-term-button").addEventListener("click", () => buildPrintTerm(state.currentStudent));
 $("#export-annual-backup-button").addEventListener("click", exportAnnualBackup);
+$("#annual-backup-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  printAnnualBackup(Number($("#backup-school-year").value));
+});
+$("#export-student-terms-button").addEventListener("click", exportStudentTerms);
 $("#detail-year-select").addEventListener("change", (event) => selectStudentYear(Number(event.target.value)));
 $("#signature-history-button").addEventListener("click", () => {
   if (state.signatureBook) openBookHistory(state.signatureBook.id);
@@ -724,6 +816,36 @@ $("#managed-user-form").addEventListener("submit", async (event) => {
     userForm.reset();
     notify("Usuário criado com sucesso.");
     await loadManagedUsers();
+  } catch (error) {
+    notify(error.message, "error");
+  } finally {
+    button.disabled = false;
+  }
+});
+$("#school-year-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  if (!form.reportValidity()) return;
+  const button = $("#school-year-submit");
+  button.disabled = true;
+  try {
+    const result = await api("/api/settings/school-year", {
+      method: "POST",
+      body: JSON.stringify({ school_year: Number($("#school-year-input").value) }),
+    });
+    const enrollment = state.currentStudent?.enrollment;
+    await refreshStudents();
+    if (enrollment) {
+      const record = await api(`/api/students/${encodeURIComponent(enrollment)}`);
+      state.currentStudent = {
+        ...state.students.find((student) => student.enrollment === enrollment),
+        ...record,
+      };
+      state.selectedCheckoutBooks.clear();
+      renderStudentDetail();
+    }
+    $("#school-year-confirm").checked = false;
+    notify(`Ano letivo atualizado para ${result.school_year}. Ciclos e turmas foram atualizados.`);
   } catch (error) {
     notify(error.message, "error");
   } finally {
@@ -759,16 +881,30 @@ $("#signature-form").addEventListener("submit", async (event) => {
   const button = $('button[type="submit"]', $("#signature-form"));
   button.disabled = true;
   try {
-    await api(`/api/students/${encodeURIComponent(state.currentStudent.enrollment)}/books/${encodeURIComponent(state.signatureBook.id)}/${state.signatureAction}`, {
-      method: "PUT",
-      body: JSON.stringify({
-        signature: elements.canvas.toDataURL("image/png"),
-        enrollment_confirmation: state.enrollmentConfirmation,
-      }),
-    });
+    const signature = elements.canvas.toDataURL("image/png");
+    if (state.signatureAction === "checkout") {
+      await api(
+        `/api/students/${encodeURIComponent(state.currentStudent.enrollment)}/books/checkout`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            book_ids: state.signatureBooks.map((book) => book.id),
+            signature,
+            enrollment_confirmation: state.enrollmentConfirmation,
+          }),
+        },
+      );
+    } else {
+      await api(`/api/students/${encodeURIComponent(state.currentStudent.enrollment)}/books/${encodeURIComponent(state.signatureBook.id)}/${state.signatureAction}`, {
+        method: "PUT",
+        body: JSON.stringify({ signature }),
+      });
+    }
     elements.signatureDialog.close();
     await refreshCurrentStudent();
-    notify(state.signatureAction === "checkout" ? "Assinatura de entrega registrada." : "Devolução registrada com sucesso.");
+    notify(state.signatureAction === "checkout"
+      ? `Entrega de ${state.signatureBooks.length} ${state.signatureBooks.length === 1 ? "livro registrada" : "livros registrada"} com uma assinatura.`
+      : "Devolução registrada com sucesso.");
   } catch (error) {
     notify(error.message, "error");
   } finally {

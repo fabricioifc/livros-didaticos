@@ -6,7 +6,7 @@ from pathlib import Path
 from flask import Flask
 
 from .controllers import main
-from .repository import initialize_db
+from .repository import get_school_year, initialize_db
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -31,6 +31,15 @@ def create_app(test_config=None):
         return str(asset_path.stat().st_mtime_ns)
 
     app.jinja_env.globals["static_asset_version"] = static_asset_version
-    initialize_db(app.config["DATABASE_PATH"], app.config["SCHOOL_YEAR"])
+    app.config["SCHOOL_YEAR"] = initialize_db(
+        app.config["DATABASE_PATH"], app.config["SCHOOL_YEAR"]
+    )
+
+    @app.before_request
+    def refresh_school_year():
+        app.config["SCHOOL_YEAR"] = get_school_year(
+            app.config["DATABASE_PATH"], app.config["SCHOOL_YEAR"]
+        )
+
     app.register_blueprint(main)
     return app
