@@ -120,7 +120,7 @@ Para atualizar as imagens após mudanças, execute `docker compose up --build -d
 
 ## Fluxo
 
-- Cadastre cada estudante com nome, matrícula única e ano (1º, 2º ou 3º).
+- Cadastre cada estudante com nome, matrícula única de exatamente 10 dígitos (por exemplo, `2026304710`) e ano (1º, 2º ou 3º). Os termos PDF listam os livros em ordem alfabética pelo título.
 - Na tela **Estudantes**, use **Baixar modelo CSV** para obter uma planilha vazia com os cabeçalhos `matricula`, `nome` e `turma`; preencha-a e importe pelo botão **Importar CSV**. A turma pode ser `1`, `1º`, `1°` ou `1º ano` (equivalente para 2º e 3º). Também são aceitos arquivos separados por vírgula ou tabulação e o cabeçalho `matrícula`. Linhas com matrícula já cadastrada, inclusive repetidas no mesmo arquivo, são ignoradas; linhas inválidas são informadas ao final.
 - Abra o termo, selecione um ou mais livros pendentes e escolha **Assinar entrega dos selecionados**. O estudante vê a lista dos títulos no passo de confirmação e novamente na tela de assinatura; a mesma assinatura é registrada em cada livro selecionado. Antes de assinar, solicite a matrícula verbalmente e digite-a para confirmar que corresponde ao cadastro selecionado.
 - Na tela da assinatura ou ao lado de cada livro, abra **Ver histórico e corrigir registro** / **Histórico** para consultar assinaturas, devoluções e correções anteriores. Se uma entrega ou devolução foi registrada por engano ou a assinatura precisa ser refeita, cancele o registro ativo e informe o motivo. O histórico original não é apagado; cada cancelamento também registra data, servidor responsável e justificativa. Para cancelar uma entrega que já tem devolução registrada, cancele primeiro a devolução.

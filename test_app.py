@@ -591,7 +591,7 @@ class LibraryAppTest(unittest.TestCase):
         self.assertEqual(books[-1]["title"], "Do seu jeito — Matemática — Volume 2")
         duplicate = self.client.post(
             "/api/students",
-            json={"name": "Outra aluna", "enrollment": "2026000001", "grade": "1º"},
+            json={"name": "Outra aluna", "enrollment": "2026304710", "grade": "1º"},
             headers={"X-CSRF-Token": self.csrf()},
         )
         self.assertEqual(duplicate.status_code, 409)
@@ -610,7 +610,7 @@ class LibraryAppTest(unittest.TestCase):
             "2026000002;João da Silva;2º ano\n"
             "2026000002;Duplicada no arquivo;1°\n"
             ";Sem matrícula;3\n"
-            "2026004;Turma inválida;4\n"
+            "2026000004;Turma inválida;4\n"
             "ABC1234567;Não numérica;1º\n"
         ).encode("utf-8")
 
