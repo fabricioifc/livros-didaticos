@@ -57,7 +57,7 @@
       <nav class="main-nav" aria-label="Navegação principal">
         <button class="nav-item is-active" data-view="dashboard"><span class="nav-icon nav-icon--grid"></span> Visão geral</button>
         <button class="nav-item" data-view="students"><span class="nav-icon nav-icon--users"></span> Estudantes <span class="nav-count" id="nav-student-count">0</span></button>
-        <button class="nav-item" data-view="users" id="users-nav-item" hidden><span class="nav-icon nav-icon--users"></span> Usuários</button>
+        <button class="nav-item" data-view="users" id="users-nav-item" hidden><span class="nav-icon nav-icon--users"></span> Administração</button>
       </nav>
       <div class="sidebar-bottom">
         <div class="help-card"><span class="help-spark">✳</span><strong>Precisa de ajuda?</strong><p>Consulte a equipe de apoio do campus.</p></div>
@@ -71,7 +71,7 @@
 
     <main class="main-content">
       <header class="topbar">
-        <button class="icon-button menu-button" id="menu-button" aria-label="Abrir menu"><span class="menu-icon"></span></button>
+        <button class="icon-button menu-button" id="menu-button" type="button" aria-label="Ocultar menu lateral" aria-expanded="true" title="Ocultar menu lateral"><span class="menu-icon"></span></button>
         <div class="breadcrumb"><span>Acervo IFC</span><span class="breadcrumb-separator">/</span><strong id="breadcrumb-current">Visão geral</strong></div>
         <div class="topbar-right"><span class="school-year"><span class="status-dot"></span> Ano letivo <span id="school-year-label"></span></span><div class="top-avatar" id="top-avatar">IF</div></div>
       </header>
@@ -112,6 +112,24 @@
         <div class="page-heading">
           <div><span class="eyebrow">ADMINISTRAÇÃO</span><h1>Administração</h1><p>Gerencie cursos, contas de servidores e permissões de acesso.</p></div>
         </div>
+        <div class="admin-tabs" role="tablist" aria-label="Seções de administração">
+          <button class="admin-tab is-active" id="admin-tab-courses" role="tab" aria-selected="true" aria-controls="admin-panel-courses" data-admin-tab="courses" type="button">Cursos</button>
+          <button class="admin-tab" id="admin-tab-school-year" role="tab" aria-selected="false" aria-controls="admin-panel-school-year" data-admin-tab="school-year" type="button">Ano letivo</button>
+          <button class="admin-tab" id="admin-tab-users" role="tab" aria-selected="false" aria-controls="admin-panel-users" data-admin-tab="users" type="button">Usuários</button>
+        </div>
+        <div class="admin-panel" id="admin-panel-courses" role="tabpanel" aria-labelledby="admin-tab-courses">
+        <div class="content-card user-management-card">
+          <div class="card-heading"><div><h2>Cursos</h2><p>Cadastre os cursos disponíveis para vincular aos estudantes. Cursos em uso podem ser desativados sem apagar o histórico.</p></div></div>
+          <form id="course-form" class="course-management-form">
+            <div><label class="field-label" for="course-name">Nome do curso</label><input class="text-input" id="course-name" name="name" maxlength="150" placeholder="Ex.: Técnico em Administração Integrado ao Ensino Médio" required></div>
+            <div><label class="field-label" for="course-abbreviation">Sigla (3 a 5 caracteres)</label><input class="text-input" id="course-abbreviation" name="abbreviation" minlength="3" maxlength="5" pattern="[A-Za-z0-9]{3,5}" placeholder="Ex.: ADM" required></div>
+            <button class="button button--primary" id="course-submit" type="submit">Cadastrar curso</button>
+          </form>
+          <div class="table-scroll"><table><thead><tr><th>SIGLA</th><th>CURSO</th><th>ESTUDANTES</th><th>STATUS</th><th></th></tr></thead><tbody id="courses-table"></tbody></table></div>
+          <div class="empty-state" id="courses-empty" hidden><strong>Nenhum curso cadastrado</strong></div>
+        </div>
+        </div>
+        <div class="admin-panel" id="admin-panel-school-year" role="tabpanel" aria-labelledby="admin-tab-school-year" hidden>
         <div class="content-card user-management-card school-year-settings-card">
           <div class="card-heading"><div><h2>Ano letivo</h2><p>Ano atual: <strong id="admin-school-year-current"></strong>. Avançar cria os ciclos e promove os estudantes automaticamente.</p></div></div>
           <form id="school-year-form" class="school-year-form">
@@ -120,15 +138,8 @@
             <button class="button button--primary" id="school-year-submit" type="submit">Atualizar ano</button>
           </form>
         </div>
-        <div class="content-card user-management-card">
-          <div class="card-heading"><div><h2>Cursos</h2><p>Cadastre os cursos disponíveis para vincular aos estudantes. Cursos em uso podem ser desativados sem apagar o histórico.</p></div></div>
-          <form id="course-form" class="course-management-form">
-            <div><label class="field-label" for="course-name">Nome do curso</label><input class="text-input" id="course-name" name="name" maxlength="150" placeholder="Ex.: Técnico em Administração Integrado ao Ensino Médio" required></div>
-            <button class="button button--primary" id="course-submit" type="submit">Cadastrar curso</button>
-          </form>
-          <div class="table-scroll"><table><thead><tr><th>CURSO</th><th>ESTUDANTES</th><th>STATUS</th><th></th></tr></thead><tbody id="courses-table"></tbody></table></div>
-          <div class="empty-state" id="courses-empty" hidden><strong>Nenhum curso cadastrado</strong></div>
         </div>
+        <div class="admin-panel" id="admin-panel-users" role="tabpanel" aria-labelledby="admin-tab-users" hidden>
         <div class="content-card user-management-card">
           <form id="managed-user-form" class="managed-user-form">
             <div><label class="field-label" for="managed-user-email">E-mail institucional</label><input class="text-input" id="managed-user-email" name="email" type="email" placeholder="nome@ifc.edu.br" required></div>
@@ -141,6 +152,7 @@
           <div class="card-heading"><div><h2>Contas cadastradas</h2><p>Desativar uma conta encerra o acesso em todas as sessões.</p></div></div>
           <div class="table-scroll"><table><thead><tr><th>E-MAIL</th><th>PERFIL</th><th>STATUS</th><th></th></tr></thead><tbody id="managed-users-table"></tbody></table></div>
           <div class="empty-state" id="managed-users-empty" hidden><strong>Nenhum usuário cadastrado</strong></div>
+        </div>
         </div>
       </section>
     </main>

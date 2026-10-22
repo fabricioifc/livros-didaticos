@@ -97,11 +97,25 @@ function showAuth() {
   prepareLogin();
 }
 
+function setMenuExpanded(expanded) {
+  const isMobile = window.matchMedia("(max-width: 760px)").matches;
+  if (isMobile) {
+    $("#sidebar").classList.toggle("is-open", expanded);
+  } else {
+    elements.application.classList.toggle("sidebar-collapsed", !expanded);
+  }
+  const label = expanded ? "Ocultar menu lateral" : "Mostrar menu lateral";
+  $("#menu-button").setAttribute("aria-expanded", String(expanded));
+  $("#menu-button").setAttribute("aria-label", label);
+  $("#menu-button").title = label;
+}
+
 function showApplication(email, isAdmin = false) {
   state.email = email;
   state.isAdmin = isAdmin;
   elements.authScreen.hidden = true;
   elements.application.hidden = false;
+  setMenuExpanded(!window.matchMedia("(max-width: 760px)").matches);
   $("#users-nav-item").hidden = !isAdmin;
   $("#user-email").textContent = email;
   $("#user-role").textContent = isAdmin ? "Administrador" : "Servidor";
@@ -112,6 +126,18 @@ function showApplication(email, isAdmin = false) {
   $("#today-weekday").textContent = new Intl.DateTimeFormat("pt-BR", { weekday: "long" }).format(today).toUpperCase();
   $("#today-date").textContent = new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "long" }).format(today).toUpperCase();
   refreshStudents();
+}
+
+function setAdminTab(tabName) {
+  $$("[data-admin-tab]").forEach((button) => {
+    const selected = button.dataset.adminTab === tabName;
+    button.classList.toggle("is-active", selected);
+    button.setAttribute("aria-selected", String(selected));
+    button.tabIndex = selected ? 0 : -1;
+  });
+  $$(".admin-panel").forEach((panel) => {
+    panel.hidden = panel.id !== `admin-panel-${tabName}`;
+  });
 }
 
 async function refreshStudents() {
@@ -156,7 +182,7 @@ function rowMarkup(student) {
   return `<tr>
     <td><button class="student-name-button" data-action="detail" data-enrollment="${escapeHtml(student.enrollment)}"><span class="student-avatar">${escapeHtml(initials)}</span><span class="student-name">${escapeHtml(student.name)}</span></button></td>
     <td class="mono-cell">${escapeHtml(student.enrollment)}</td>
-    <td><span class="course-pill ${courseColor}">${escapeHtml(student.course_name)}</span></td>
+    <td><span class="course-pill ${courseColor}" title="${escapeHtml(student.course_name)}">${escapeHtml(student.course_abbreviation)}</span></td>
     <td>${student.status === "completed"
     ? '<span class="archived-pill">Arquivado</span>'
     : `<span class="grade-pill">${escapeHtml(student.grade)} ano</span>`}</td>
@@ -211,8 +237,9 @@ function setView(view) {
     users: "Administração",
   }[view] || "Visão geral";
   $$(".nav-item").forEach((button) => button.classList.toggle("is-active", button.dataset.view === view));
-  $("#sidebar").classList.remove("is-open");
+  if (window.matchMedia("(max-width: 760px)").matches) setMenuExpanded(false);
   if (view === "users") {
+    setAdminTab("courses");
     loadManagedUsers();
     loadManagedCourses();
   }
@@ -222,7 +249,7 @@ function renderStudentCourseOptions(selectedId = "") {
   const select = $("#student-course");
   const selected = String(selectedId || "");
   select.innerHTML = '<option value="" disabled>Selecione o curso</option>' + state.courses
-    .map((course) => `<option value="${course.id}" ${!course.is_active && String(course.id) !== selected ? "disabled" : ""}>${escapeHtml(course.name)}${course.is_active ? "" : " (inativo)"}</option>`)
+    .map((course) => `<option value="${course.id}" ${!course.is_active && String(course.id) !== selected ? "disabled" : ""}>${escapeHtml(course.abbreviation)} — ${escapeHtml(course.name)}${course.is_active ? "" : " (inativo)"}</option>`)
     .join("");
   select.value = selected;
 }
@@ -236,7 +263,7 @@ function renderCourseFilters() {
   const buttons = [
     '<button class="filter-chip is-selected" data-course="all" type="button">Todos os cursos</button>',
     ...state.courses.map((course) =>
-      `<button class="filter-chip ${courseColorClass(course.id)} ${String(course.id) === state.course ? "is-selected" : ""}" data-course="${course.id}" type="button">${escapeHtml(course.name)}</button>`
+      `<button class="filter-chip ${courseColorClass(course.id)} ${String(course.id) === state.course ? "is-selected" : ""}" data-course="${course.id}" type="button" title="${escapeHtml(course.name)}" aria-label="${escapeHtml(course.name)}">${escapeHtml(course.abbreviation)}</button>`
     ),
   ].join("");
   $$(".course-filter").forEach((filter) => {
@@ -250,6 +277,7 @@ function renderCourseFilters() {
 function renderManagedCourses() {
   $("#courses-table").innerHTML = state.courses.map((course) => `
     <tr data-course-id="${course.id}">
+      <td><span class="course-pill ${courseColorClass(course.id)}">${escapeHtml(course.abbreviation)}</span></td>
       <td>${escapeHtml(course.name)}</td>
       <td>${course.student_count}</td>
       <td>${course.is_active ? "Ativo" : "Inativo"}</td>
@@ -645,7 +673,7 @@ function buildPrintTermMarkup(student, date) {
   return `<article class="print-term">
     <header class="print-header"><div><strong>INSTITUTO FEDERAL CATARINENSE</strong><span>Campus Fraiburgo</span></div><span>TERMO DE COMPROMISSO · ${student.school_year}</span></header>
     <h1>Termo de compromisso com os livros didáticos</h1>
-    <p>Eu, <strong>${escapeHtml(student.name)}</strong>, matrícula <strong>${escapeHtml(student.enrollment)}</strong>, estudante da turma do <strong>${escapeHtml(student.grade)} ano</strong> do curso <strong>${escapeHtml(student.course_name)}</strong>, declaro que recebi os livros relacionados neste termo ao longo do curso e assumo a responsabilidade de devolvê-los em perfeito estado de conservação ao final do Ensino Médio, em caso de transferência para outra instituição ou de desistência do curso.</p>
+    <p>Eu, <strong>${escapeHtml(student.name)}</strong>, matrícula <strong>${escapeHtml(student.enrollment)}</strong>, estudante da turma do <strong>${escapeHtml(student.grade)} ano</strong> do curso <strong>${escapeHtml(student.course_name)} (${escapeHtml(student.course_abbreviation)})</strong>, declaro que recebi os livros relacionados neste termo ao longo do curso e assumo a responsabilidade de devolvê-los em perfeito estado de conservação ao final do Ensino Médio, em caso de transferência para outra instituição ou de desistência do curso.</p>
     <h2>Regras de utilização dos livros didáticos (PNLD)</h2><ol>${rules.map((rule) => `<li>${escapeHtml(rule)}</li>`).join("")}</ol>
     <table class="print-table"><thead><tr><th>Título do volume</th><th>Assinatura do estudante<br>no empréstimo</th><th>Assinatura do servidor<br>na devolução</th></tr></thead><tbody>${rows}</tbody></table>
     <footer class="print-footer"><span>Fraiburgo, ${date}</span><span>Rua Cruz e Souza, nº 100 · Centro · Fraiburgo/SC · (49) 3202-8800</span></footer>
@@ -820,7 +848,10 @@ $("#course-form").addEventListener("submit", async (event) => {
   try {
     await api("/api/courses", {
       method: "POST",
-      body: JSON.stringify({ name: $("#course-name").value }),
+      body: JSON.stringify({
+        name: $("#course-name").value,
+        abbreviation: $("#course-abbreviation").value,
+      }),
     });
     form.reset();
     await loadManagedCourses();
@@ -842,7 +873,22 @@ $("#logout-button").addEventListener("click", async () => {
 
 $$(".nav-item").forEach((button) => button.addEventListener("click", () => setView(button.dataset.view)));
 $$("[data-go]").forEach((button) => button.addEventListener("click", () => setView(button.dataset.go)));
-$("#menu-button").addEventListener("click", () => $("#sidebar").classList.toggle("is-open"));
+$("#menu-button").addEventListener("click", () => {
+  setMenuExpanded($("#menu-button").getAttribute("aria-expanded") !== "true");
+});
+$$("[data-admin-tab]").forEach((button) => {
+  button.addEventListener("click", () => setAdminTab(button.dataset.adminTab));
+  button.addEventListener("keydown", (event) => {
+    if (!["ArrowLeft", "ArrowRight"].includes(event.key)) return;
+    event.preventDefault();
+    const tabs = $$("[data-admin-tab]");
+    const currentIndex = tabs.indexOf(button);
+    const step = event.key === "ArrowRight" ? 1 : -1;
+    const next = tabs[(currentIndex + step + tabs.length) % tabs.length];
+    next.focus();
+    setAdminTab(next.dataset.adminTab);
+  });
+});
 $("#dashboard-search").addEventListener("input", renderStudents);
 $("#students-search").addEventListener("input", renderStudents);
 $$(".grade-filter[data-grade-filter]").forEach((filter) => filter.addEventListener("click", (event) => {

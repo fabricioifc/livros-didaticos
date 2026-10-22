@@ -42,6 +42,7 @@ def initialize_db(database_path, school_year):
             CREATE TABLE IF NOT EXISTS courses (
                 id INTEGER PRIMARY KEY,
                 name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+                abbreviation TEXT,
                 is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1))
             );
             CREATE TABLE IF NOT EXISTS application_settings (
@@ -103,12 +104,52 @@ def initialize_db(database_path, school_year):
             db.execute(
                 "ALTER TABLE users ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1"
             )
+        course_columns = {
+            row["name"] for row in db.execute("PRAGMA table_info(courses)").fetchall()
+        }
+        if "abbreviation" not in course_columns:
+            db.execute("ALTER TABLE courses ADD COLUMN abbreviation TEXT")
         db.executemany(
-            "INSERT OR IGNORE INTO courses (name) VALUES (?)",
+            "INSERT OR IGNORE INTO courses (name, abbreviation) VALUES (?, ?)",
             [
-                ("Técnico em Informática Integrado ao Ensino Médio",),
-                ("Técnico em Administração Integrado ao Ensino Médio",),
+                ("Técnico em Informática Integrado ao Ensino Médio", "INFO"),
+                ("Técnico em Administração Integrado ao Ensino Médio", "ADM"),
             ],
+        )
+        default_abbreviations = {
+            "Técnico em Informática Integrado ao Ensino Médio": "INFO",
+            "Técnico em Administração Integrado ao Ensino Médio": "ADM",
+        }
+        for name, abbreviation in default_abbreviations.items():
+            db.execute(
+                """UPDATE courses SET abbreviation = ?
+                   WHERE name = ? AND (abbreviation IS NULL OR abbreviation = '')""",
+                (abbreviation, name),
+            )
+        used_abbreviations = {
+            row["abbreviation"].upper()
+            for row in db.execute(
+                "SELECT abbreviation FROM courses WHERE abbreviation IS NOT NULL"
+            ).fetchall()
+        }
+        for course in db.execute(
+            """SELECT id FROM courses
+               WHERE abbreviation IS NULL OR abbreviation = '' ORDER BY id"""
+        ).fetchall():
+            suffix = 1
+            while True:
+                abbreviation = f"C{suffix:02d}"
+                if abbreviation not in used_abbreviations:
+                    break
+                suffix += 1
+            db.execute(
+                "UPDATE courses SET abbreviation = ? WHERE id = ?",
+                (abbreviation, course["id"]),
+            )
+            used_abbreviations.add(abbreviation)
+        db.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS courses_abbreviation_unique "
+            "ON courses(abbreviation COLLATE NOCASE)"
         )
         student_columns = {
             row["name"] for row in db.execute("PRAGMA table_info(students)").fetchall()
@@ -183,7 +224,8 @@ def get_school_year(database_path, fallback):
 def list_courses(database_path, include_inactive=False):
     with database(database_path) as db:
         rows = db.execute(
-            """SELECT c.id, c.name, c.is_active, COUNT(s.enrollment) AS student_count
+            """SELECT c.id, c.name, c.abbreviation, c.is_active,
+                      COUNT(s.enrollment) AS student_count
                FROM courses c LEFT JOIN students s ON s.course_id = c.id
                WHERE (? = 1 OR c.is_active = 1)
                GROUP BY c.id ORDER BY c.name COLLATE NOCASE""",
@@ -195,15 +237,18 @@ def list_courses(database_path, include_inactive=False):
 def find_course(database_path, course_id):
     with database(database_path) as db:
         row = db.execute(
-            "SELECT id, name, is_active FROM courses WHERE id = ?",
+            "SELECT id, name, abbreviation, is_active FROM courses WHERE id = ?",
             (course_id,),
         ).fetchone()
     return {**dict(row), "is_active": bool(row["is_active"])} if row else None
 
 
-def add_course(database_path, name):
+def add_course(database_path, name, abbreviation):
     with database(database_path) as db:
-        cursor = db.execute("INSERT INTO courses (name) VALUES (?)", (name,))
+        cursor = db.execute(
+            "INSERT INTO courses (name, abbreviation) VALUES (?, ?)",
+            (name, abbreviation),
+        )
     return cursor.lastrowid
 
 
@@ -563,7 +608,8 @@ def find_student(database_path, enrollment, school_year=None):
     with database(database_path) as db:
         student = db.execute(
             """SELECT s.enrollment, s.name, s.grade, s.created_at,
-                      s.course_id, c.name AS course_name
+                      s.course_id, c.name AS course_name,
+                      c.abbreviation AS course_abbreviation
                FROM students s JOIN courses c ON c.id = s.course_id
                WHERE s.enrollment = ?""",
             (enrollment,),
@@ -629,6 +675,7 @@ def list_students(database_path, query, school_year, exact_year=False):
     with database(database_path) as db:
         rows = db.execute(
             """SELECT s.enrollment, s.name, s.course_id, c.name AS course_name,
+                      c.abbreviation AS course_abbreviation,
                       COALESCE(y.grade, s.grade) AS grade,
                       COALESCE(y.status, 'completed') AS status, s.created_at,
                       COUNT(b.book_id) AS total_books,

@@ -553,6 +553,10 @@ class LibraryAppTest(unittest.TestCase):
 
         courses = admin.get("/api/courses").get_json()["courses"]
         self.assertEqual(len(courses), 2)
+        self.assertEqual(
+            {course["abbreviation"] for course in courses},
+            {"INFO", "ADM"},
+        )
         self.login()
         denied = self.client.post(
             "/api/courses",
@@ -563,17 +567,36 @@ class LibraryAppTest(unittest.TestCase):
 
         created = admin.post(
             "/api/courses",
-            json={"name": "Técnico em Gestão Integrado ao Ensino Médio"},
+            json={
+                "name": "Técnico em Gestão Integrado ao Ensino Médio",
+                "abbreviation": " ges ",
+            },
             headers={"X-CSRF-Token": admin_csrf},
         )
         self.assertEqual(created.status_code, 201)
         course = created.get_json()
+        self.assertEqual(course["abbreviation"], "GES")
         duplicate = admin.post(
             "/api/courses",
-            json={"name": "técnico em gestão integrado ao ensino médio"},
+            json={
+                "name": "técnico em gestão integrado ao ensino médio",
+                "abbreviation": "GZ2",
+            },
             headers={"X-CSRF-Token": admin_csrf},
         )
         self.assertEqual(duplicate.status_code, 409)
+        duplicate_abbreviation = admin.post(
+            "/api/courses",
+            json={"name": "Curso com sigla repetida", "abbreviation": "ges"},
+            headers={"X-CSRF-Token": admin_csrf},
+        )
+        self.assertEqual(duplicate_abbreviation.status_code, 409)
+        invalid_abbreviation = admin.post(
+            "/api/courses",
+            json={"name": "Curso com sigla curta", "abbreviation": "AB"},
+            headers={"X-CSRF-Token": admin_csrf},
+        )
+        self.assertEqual(invalid_abbreviation.status_code, 400)
 
         student = admin.post(
             "/api/students",
@@ -626,6 +649,57 @@ class LibraryAppTest(unittest.TestCase):
             headers={"X-CSRF-Token": admin_csrf},
         )
         self.assertEqual(last_course.status_code, 409)
+
+    def test_existing_courses_migrate_to_abbreviations_and_preserve_student_links(self):
+        database_path = Path(self.temp_dir.name) / "legacy-courses.db"
+        database = sqlite3.connect(database_path)
+        try:
+            database.executescript(
+                """
+                CREATE TABLE courses (
+                    id INTEGER PRIMARY KEY,
+                    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+                    is_active INTEGER NOT NULL DEFAULT 1
+                );
+                INSERT INTO courses (name) VALUES ('Curso Técnico Antigo');
+                CREATE TABLE students (
+                    enrollment TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    grade TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                INSERT INTO students VALUES (
+                    '2026304710', 'Estudante Legado', '1º', '2026-01-01'
+                );
+                """
+            )
+        finally:
+            database.close()
+
+        migrated_app = create_app(
+            {
+                "TESTING": True,
+                "DATABASE_PATH": str(database_path),
+                "SCHOOL_YEAR": 2026,
+            }
+        )
+        migrated_courses = repository.list_courses(str(database_path))
+        self.assertEqual(
+            {course["abbreviation"] for course in migrated_courses if course["name"].startswith("Técnico em")},
+            {"INFO", "ADM"},
+        )
+        legacy_course = next(
+            course for course in migrated_courses if course["name"] == "Curso Técnico Antigo"
+        )
+        self.assertEqual(len(legacy_course["abbreviation"]), 3)
+        migrated_student = repository.find_student(
+            str(database_path), "2026304710", migrated_app.config["SCHOOL_YEAR"]
+        )
+        self.assertEqual(
+            migrated_student["course_name"],
+            "Técnico em Informática Integrado ao Ensino Médio",
+        )
+        self.assertEqual(migrated_student["course_abbreviation"], "INFO")
 
     def test_existing_user_table_is_migrated_and_designated_admin_promoted(self):
         database_path = Path(self.temp_dir.name) / "legacy-users.db"
@@ -713,8 +787,8 @@ class LibraryAppTest(unittest.TestCase):
         csv_content = (
             "\ufeffMatrícula;Nome;Turma;Curso\n"
             "2026000001;Ana atualizada;3º;Técnico em Informática Integrado ao Ensino Médio\n"
-            "2026000002;João da Silva;2º ano;Técnico em Administração Integrado ao Ensino Médio\n"
-            "2026000002;Duplicada no arquivo;1°;Técnico em Administração Integrado ao Ensino Médio\n"
+            "2026000002;João da Silva;2º ano;ADM\n"
+            "2026000002;Duplicada no arquivo;1°;ADM\n"
             ";Sem matrícula;3;Técnico em Informática Integrado ao Ensino Médio\n"
             "2026000004;Turma inválida;4;Técnico em Informática Integrado ao Ensino Médio\n"
             "ABC1234567;Não numérica;1º;Técnico em Informática Integrado ao Ensino Médio\n"
@@ -1092,6 +1166,12 @@ class LibraryAppTest(unittest.TestCase):
         self.assertIn(b'id="admin-school-year-current"', page.data)
         self.assertIn(b'id="school-year-form"', page.data)
         self.assertIn(b'id="course-form"', page.data)
+        self.assertIn(b'id="course-abbreviation"', page.data)
+        self.assertIn(b'role="tablist"', page.data)
+        self.assertIn(b'id="admin-tab-courses"', page.data)
+        self.assertIn(b'id="admin-tab-school-year"', page.data)
+        self.assertIn(b'id="admin-tab-users"', page.data)
+        self.assertIn(b'id="menu-button"', page.data)
         self.assertIn(b'id="student-course"', page.data)
         self.assertIn(b'id="dashboard-course-filter"', page.data)
         self.assertIn(b'id="students-course-filter"', page.data)

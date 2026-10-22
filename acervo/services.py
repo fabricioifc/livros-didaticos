@@ -108,11 +108,24 @@ def create_course(database_path, body):
     name = body.get("name")
     if not isinstance(name, str) or not name.strip() or len(name.strip()) > 150:
         raise ServiceError("Informe o nome do curso (até 150 caracteres).", 400)
+    abbreviation = body.get("abbreviation")
+    if not isinstance(abbreviation, str):
+        raise ServiceError("Informe uma sigla com 3 a 5 caracteres.", 400)
+    abbreviation = abbreviation.strip().upper()
+    if not re.fullmatch(r"[A-Z0-9]{3,5}", abbreviation):
+        raise ServiceError(
+            "A sigla deve conter de 3 a 5 letras ou números.",
+            400,
+        )
     try:
-        course_id = repository.add_course(database_path, name.strip())
+        course_id = repository.add_course(
+            database_path, name.strip(), abbreviation
+        )
     except sqlite3.IntegrityError as error:
         if "UNIQUE constraint failed: courses.name" in str(error):
             raise ServiceError("Já existe um curso com esse nome.", 409) from error
+        if "courses.abbreviation" in str(error):
+            raise ServiceError("Já existe um curso com essa sigla.", 409) from error
         raise
     return repository.find_course(database_path, course_id)
 
@@ -228,9 +241,10 @@ def import_students(database_path, filename, content, school_year):
             )
 
         courses = repository.list_courses(database_path)
-        courses_by_name = {
-            course["name"].casefold(): course["id"] for course in courses
-        }
+        course_identifiers = {}
+        for course in courses:
+            course_identifiers[course["name"].casefold()] = course["id"]
+            course_identifiers[course["abbreviation"].casefold()] = course["id"]
         valid_students = []
         invalid_rows = []
         for line_number, row in enumerate(reader, start=2):
@@ -241,7 +255,7 @@ def import_students(database_path, filename, content, school_year):
             grade_value = (row.get(normalized_headers["turma"]) or "").strip()
             course_name = (row.get(normalized_headers["curso"]) or "").strip()
             grade = _normalize_grade(grade_value)
-            course_id = courses_by_name.get(course_name.casefold())
+            course_id = course_identifiers.get(course_name.casefold())
 
             if not _is_valid_enrollment(enrollment):
                 invalid_rows.append({"line": line_number, "reason": "matrícula inválida"})
