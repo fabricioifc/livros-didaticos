@@ -17,7 +17,6 @@ def create_app(test_config=None):
     app.config.from_mapping(
         SECRET_KEY=os.environ.get("SECRET_KEY") or secrets.token_hex(32),
         DATABASE_PATH=os.environ.get("DATABASE_PATH", str(PROJECT_ROOT / "livros.db")),
-        PUBLIC_BASE_URL=os.environ.get("PUBLIC_BASE_URL", "").rstrip("/"),
         SCHOOL_YEAR=int(os.environ.get("SCHOOL_YEAR") or datetime.now().year),
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Lax",

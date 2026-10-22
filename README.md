@@ -13,12 +13,9 @@ acervo/
 ├── repository.py    # Persistência e consultas SQLite
 ├── services.py      # Casos de uso e validações do negócio
 ├── templates/
-│   ├── index.html   # View do servidor
-│   └── student.html # Portal individual do estudante
+│   └── index.html   # Interface do servidor
 └── static/
     ├── app.js       # Interações da interface
-    ├── student.js  # Login e QR temporário do estudante
-    ├── vendor/qr-scanner/ # Leitor QR local (qr-scanner 1.4.2, MIT)
     └── styles.css   # Estilos
 server.py            # Inicialização e comando administrativo
 test_app.py          # Testes da aplicação
@@ -70,8 +67,7 @@ Encerre com `Ctrl+C`; use `docker compose -f docker-compose.dev.yml down` para p
    ```
 
 2. Grave o valor gerado em `SECRET_KEY` no `.env`. O Compose exige uma chave não vazia. Mantenha `COOKIE_SECURE=true` quando a aplicação estiver publicada por HTTPS.
-3. Defina `PUBLIC_BASE_URL` no `.env` com o endereço público completo da aplicação, sem barra final (por exemplo, `https://acervo.exemplo.edu.br`). Esse endereço é usado no QR Code do portal do estudante; não use `localhost` na configuração de produção.
-4. O banco é criado automaticamente em `data\livros.db` no primeiro início; não é necessário criar o arquivo manualmente. Se você já possui um banco antigo em `livros.db` na raiz do projeto, pare os containers e migre-o antes de iniciar a nova configuração:
+3. O banco é criado automaticamente em `data\livros.db` no primeiro início; não é necessário criar o arquivo manualmente. Se você já possui um banco antigo em `livros.db` na raiz do projeto, pare os containers e migre-o antes de iniciar a nova configuração:
 
    ```powershell
    New-Item -ItemType Directory -Force -Path .\data
@@ -79,13 +75,13 @@ Encerre com `Ctrl+C`; use `docker compose -f docker-compose.dev.yml down` para p
    ```
 
    Se preferir manter uma cópia original, use `Copy-Item` em vez de `Move-Item`; confirme que o arquivo em `data\livros.db` contém os dados esperados antes de subir os containers.
-5. Inicie a aplicação:
+4. Inicie a aplicação:
 
    ```powershell
    docker compose up --build -d
    ```
 
-6. Crie a conta inicial do servidor:
+5. Crie a conta inicial do servidor:
 
    ```powershell
    docker compose run --rm web python server.py create-user
@@ -119,11 +115,9 @@ Para atualizar as imagens após mudanças, execute `docker compose up --build -d
 
 - Cadastre cada estudante com nome, matrícula única e ano (1º, 2º ou 3º).
 - Na tela **Estudantes**, use **Baixar modelo CSV** para obter uma planilha vazia com os cabeçalhos `matricula`, `nome` e `turma`; preencha-a e importe pelo botão **Importar CSV**. A turma pode ser `1`, `1º`, `1°` ou `1º ano` (equivalente para 2º e 3º). Também são aceitos arquivos separados por vírgula ou tabulação e o cabeçalho `matrícula`. Linhas com matrícula já cadastrada, inclusive repetidas no mesmo arquivo, são ignoradas; linhas inválidas são informadas ao final.
-- Abra o termo para registrar a assinatura manuscrita do estudante em cada título entregue.
+- Abra o termo para registrar a assinatura manuscrita do estudante em cada título entregue. Antes da assinatura, solicite a matrícula verbalmente e digite-a para confirmar que corresponde ao cadastro selecionado.
 - Na tela da assinatura ou ao lado de cada livro, abra **Ver histórico e corrigir registro** / **Histórico** para consultar assinaturas, devoluções e correções anteriores. Se uma entrega ou devolução foi registrada por engano ou a assinatura precisa ser refeita, cancele o registro ativo e informe o motivo. O histórico original não é apagado; cada cancelamento também registra data, servidor responsável e justificativa. Para cancelar uma entrega que já tem devolução registrada, cancele primeiro a devolução.
-- Para habilitar a confirmação por QR, um administrador abre o estudante e usa **Gerar acesso do aluno**. Após conferir presencialmente a identidade, entregue ao estudante o código temporário de 4 dígitos por um canal seguro. O modal também mostra um QR Code que abre o portal do estudante no endereço público configurado. O estudante entra com matrícula e código temporário e cria uma senha pessoal (mínimo de 12 caracteres). Após cinco tentativas incorretas, o acesso fica bloqueado por 15 minutos.
-- No momento da retirada, o estudante entra em `/aluno` e gera um QR Code com um código numérico de seis dígitos, válido por 90 segundos. No detalhe do estudante, o servidor seleciona **Assinar entrega**, escaneia o QR pela câmera ou digita os seis dígitos exibidos pelo estudante se a leitura falhar; após a validação, o estudante assina na tela. A câmera exige HTTPS (o Cloudflare Tunnel fornece esse contexto) e permissão do navegador. O mesmo código pode ser usado para registrar vários livros enquanto estiver válido; ele está associado à matrícula e ao ano letivo. Gerar outro código invalida o anterior. Após cinco tentativas incorretas de validação, o acesso do servidor fica bloqueado por 15 minutos. Devoluções continuam sendo registradas pelo servidor sem QR.
-- O administrador pode redefinir o acesso do estudante; o código temporário é exibido uma única vez. Esse procedimento invalida sessões estudantis e QR Codes anteriores. Oriente o estudante a não compartilhar código, senha nem capturas do QR.
+- O portal do estudante, a autenticação estudantil e a verificação por QR Code estão desativados. A matrícula informada pelo estudante é digitada pelo servidor no modal antes de iniciar a assinatura da entrega. O sistema também valida no servidor se o valor digitado corresponde à matrícula selecionada. Dados de credenciais antigos, se presentes em um banco existente, são preservados sem uso pela aplicação.
 - Na devolução, o servidor registra a assinatura título por título. A devolução só fica disponível depois da entrega.
 - Use **Exportar PDF** e escolha **Salvar como PDF** no diálogo de impressão do navegador. O termo inclui o registro de cada assinatura já feita e os espaços ainda pendentes.
 - Na tela **Estudantes**, use **Exportar backup anual** para reunir em um único PDF todos os termos do ano letivo atual com o status de entrega/devolução vigente. No diálogo de impressão, selecione **Salvar como PDF**; cada termo começa em uma nova página. Estudantes concluídos em anos anteriores, sem termo no ciclo atual, não são incluídos.

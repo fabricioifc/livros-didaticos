@@ -12,7 +12,7 @@ const state = {
   editingStudent: null,
   signatureBook: null,
   signatureAction: "checkout",
-  studentQrCode: null,
+  enrollmentConfirmation: "",
   historyBook: null,
   schoolYear: null,
   drawing: false,
@@ -33,7 +33,7 @@ const elements = {
   studentForm: $("#student-form"),
   detailDialog: $("#student-detail-dialog"),
   signatureDialog: $("#signature-dialog"),
-  qrScanDialog: $("#qr-scan-dialog"),
+  enrollmentDialog: $("#enrollment-confirmation-dialog"),
   canvas: $("#signature-canvas"),
   toastRegion: $("#toast-region"),
 };
@@ -303,7 +303,6 @@ function renderStudentDetail() {
   ).join("");
   yearSelect.value = String(student.school_year);
   $("#edit-student-button").hidden = student.school_year !== state.schoolYear || student.status !== "active";
-  $("#reset-student-access-button").hidden = !state.isAdmin;
   $("#detail-name").textContent = student.name;
   $("#detail-meta").textContent = `Matrícula ${student.enrollment} · ${student.grade} ano`;
   $("#detail-progress-label").textContent = `${counts.issued} de ${counts.total} títulos entregues`;
@@ -423,15 +422,11 @@ async function cancelBookRecord(action) {
   }
 }
 
-function openSignature(bookId, action, verifiedQrCode = null) {
-  if (action === "checkout" && !verifiedQrCode) {
-    openQrScanner(bookId);
-    return;
-  }
+function openSignature(bookId, action, enrollmentConfirmation = "") {
   const book = state.currentStudent.books.find((item) => item.id === bookId);
   state.signatureBook = book;
   state.signatureAction = action;
-  state.studentQrCode = verifiedQrCode;
+  state.enrollmentConfirmation = enrollmentConfirmation;
   state.hasSignature = false;
   $("#signature-eyebrow").textContent = action === "checkout" ? "ASSINATURA DO ESTUDANTE" : "ASSINATURA DO SERVIDOR";
   $("#signature-title").textContent = action === "checkout" ? "Assine para confirmar" : "Assine a devolução";
@@ -444,94 +439,13 @@ function openSignature(bookId, action, verifiedQrCode = null) {
   window.requestAnimationFrame(resizeCanvas);
 }
 
-let qrScanner = null;
-
-function stopQrCamera() {
-  if (qrScanner) {
-    qrScanner.destroy();
-    qrScanner = null;
-  }
-  const video = $("#qr-camera");
-  video.srcObject = null;
-  video.hidden = true;
-}
-
-async function openQrScanner(bookId) {
-  stopQrCamera();
+function openCheckoutConfirmation(bookId) {
   state.signatureBook = state.currentStudent.books.find((item) => item.id === bookId);
-  state.studentQrCode = null;
-  $("#qr-scan-status").textContent =
-    `Escaneie o QR Code temporário de ${state.currentStudent.name}.`;
-  $("#qr-manual-code").value = "";
-  $("#qr-scan-status").classList.remove("qr-scan-status--error");
-  $("#qr-camera").hidden = true;
-  elements.qrScanDialog.showModal();
-  if (typeof QrScanner === "undefined") {
-    $("#qr-scan-status").textContent =
-      "Não foi possível carregar o leitor de QR Code. Digite o código de 6 dígitos abaixo.";
-    return;
-  }
-  if (!navigator.mediaDevices?.getUserMedia) {
-    $("#qr-scan-status").textContent =
-      "A câmera não está disponível neste navegador ou endereço. Verifique se está usando HTTPS ou digite o código abaixo.";
-    return;
-  }
-
-  const video = $("#qr-camera");
-  video.hidden = false;
-  const scanner = new QrScanner(
-    video,
-    (result) => {
-      if (qrScanner !== scanner || !elements.qrScanDialog.open) return;
-      const code = result.data;
-      stopQrCamera();
-      $("#qr-camera").hidden = true;
-      validateStudentQr(code);
-    },
-    {
-      preferredCamera: "environment",
-      returnDetailedScanResult: true,
-      onDecodeError: () => {},
-    },
-  );
-  qrScanner = scanner;
-  try {
-    await scanner.start();
-    if (qrScanner !== scanner || !elements.qrScanDialog.open) stopQrCamera();
-  } catch (error) {
-    if (qrScanner === scanner) {
-      stopQrCamera();
-      $("#qr-scan-status").textContent =
-        "Não foi possível iniciar a câmera. Verifique a permissão ou digite o código de 6 dígitos abaixo.";
-      notify(error.message, "error");
-    }
-  }
-}
-
-async function validateStudentQr(code) {
-  try {
-    const result = await api("/api/student-qr/verify", {
-      method: "POST",
-      body: JSON.stringify({
-        code: code.trim(),
-        enrollment: state.currentStudent.enrollment,
-      }),
-    });
-    state.studentQrCode = code.trim();
-    stopQrCamera();
-    $("#qr-camera").hidden = true;
-    elements.qrScanDialog.close();
-    notify(`Estudante validado: ${result.name}.`);
-    openSignature(state.signatureBook.id, "checkout", state.studentQrCode);
-  } catch (error) {
-    $("#qr-scan-status").textContent = error.message;
-    $("#qr-scan-status").classList.add("qr-scan-status--error");
-    stopQrCamera();
-    $("#qr-camera").hidden = true;
-    const manualCode = $("#qr-manual-code");
-    manualCode.value = /^\d{6}$/.test(code.trim()) ? code.trim() : "";
-    manualCode.focus();
-  }
+  $("#checkout-student-name").textContent = state.currentStudent.name;
+  $("#checkout-student-enrollment").textContent = state.currentStudent.enrollment;
+  $("#enrollment-confirmation-input").value = "";
+  elements.enrollmentDialog.showModal();
+  $("#enrollment-confirmation-input").focus();
 }
 
 function resizeCanvas() {
@@ -764,19 +678,22 @@ document.addEventListener("click", (event) => {
   if (!target) return;
   if (target.dataset.action === "detail") openStudent(target.dataset.enrollment);
   if (target.dataset.action === "add-student") openNewStudent();
-  if (target.dataset.action === "sign-checkout") openSignature(target.dataset.book, "checkout");
+  if (target.dataset.action === "sign-checkout") openCheckoutConfirmation(target.dataset.book);
   if (target.dataset.action === "sign-return") openSignature(target.dataset.book, "return");
   if (target.dataset.action === "book-history") openBookHistory(target.dataset.book);
   if (target.dataset.action === "save-user") saveManagedUser(target.closest("tr"));
 });
 
-elements.qrScanDialog.addEventListener("close", stopQrCamera);
-$("#qr-manual-form").addEventListener("submit", async (event) => {
+$("#enrollment-confirmation-form").addEventListener("submit", (event) => {
   event.preventDefault();
-  await validateStudentQr($("#qr-manual-code").value);
-});
-elements.signatureDialog.addEventListener("close", () => {
-  state.studentQrCode = null;
+  const enrollment = $("#enrollment-confirmation-input").value.trim();
+  if (enrollment !== state.currentStudent.enrollment) {
+    notify("A matrícula informada não corresponde ao estudante selecionado.", "error");
+    $("#enrollment-confirmation-input").focus();
+    return;
+  }
+  elements.enrollmentDialog.close();
+  openSignature(state.signatureBook.id, "checkout", enrollment);
 });
 
 $$("[data-close]").forEach((button) => button.addEventListener("click", () => $(`#${button.dataset.close}`).close()));
@@ -788,26 +705,6 @@ $("#signature-history-button").addEventListener("click", () => {
 });
 $("#cancel-checkout-button").addEventListener("click", () => cancelBookRecord("checkout"));
 $("#cancel-return-button").addEventListener("click", () => cancelBookRecord("return"));
-$("#reset-student-access-button").addEventListener("click", async () => {
-  if (!state.currentStudent) return;
-  const button = $("#reset-student-access-button");
-  button.disabled = true;
-  try {
-    const result = await api(
-      `/api/students/${encodeURIComponent(state.currentStudent.enrollment)}/student-access`,
-      { method: "POST", body: JSON.stringify({}) },
-    );
-    $("#student-temp-password").textContent = result.temporary_password;
-    $("#student-portal-qr").src = result.portal_qr_data;
-    $("#student-portal-url").href = result.portal_url;
-    $("#student-portal-url").textContent = result.portal_url;
-    $("#student-access-dialog").showModal();
-  } catch (error) {
-    notify(error.message, "error");
-  } finally {
-    button.disabled = false;
-  }
-});
 $("#managed-user-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const userForm = event.currentTarget;
@@ -865,7 +762,7 @@ $("#signature-form").addEventListener("submit", async (event) => {
       method: "PUT",
       body: JSON.stringify({
         signature: elements.canvas.toDataURL("image/png"),
-        student_qr_code: state.studentQrCode,
+        enrollment_confirmation: state.enrollmentConfirmation,
       }),
     });
     elements.signatureDialog.close();

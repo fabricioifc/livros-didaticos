@@ -9,7 +9,6 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v=static_asset_version('styles.css')) }}">
-  <script src="{{ url_for('static', filename='vendor/qr-scanner/qr-scanner.umd.min.js', v=static_asset_version('vendor/qr-scanner/qr-scanner.umd.min.js')) }}" defer></script>
   <script src="{{ url_for('static', filename='app.js', v=static_asset_version('app.js')) }}" defer></script>
 </head>
 <body>
@@ -140,21 +139,20 @@
   </dialog>
 
   <dialog id="student-detail-dialog" class="dialog dialog--detail">
-    <div class="dialog-heading detail-heading"><div><span class="eyebrow">TERMO DE COMPROMISSO · <span id="detail-school-year"></span></span><h2 id="detail-name"></h2><p id="detail-meta"></p><label class="field-label" for="detail-year-select">Ciclo letivo</label><select class="text-input detail-year-select" id="detail-year-select" aria-label="Selecionar ciclo letivo"></select></div><div class="detail-header-actions"><button class="text-button" id="reset-student-access-button" type="button" hidden>Gerar acesso do aluno</button><button class="text-button" id="edit-student-button" type="button">Editar cadastro</button><button class="dialog-close" type="button" data-close="student-detail-dialog" aria-label="Fechar">×</button></div></div>
+    <div class="dialog-heading detail-heading"><div><span class="eyebrow">TERMO DE COMPROMISSO · <span id="detail-school-year"></span></span><h2 id="detail-name"></h2><p id="detail-meta"></p><label class="field-label" for="detail-year-select">Ciclo letivo</label><select class="text-input detail-year-select" id="detail-year-select" aria-label="Selecionar ciclo letivo"></select></div><div class="detail-header-actions"><button class="text-button" id="edit-student-button" type="button">Editar cadastro</button><button class="dialog-close" type="button" data-close="student-detail-dialog" aria-label="Fechar">×</button></div></div>
     <div class="detail-progress"><div><span id="detail-progress-label">0 de 15 títulos entregues</span><button class="text-button" id="export-term-button">Exportar PDF <span>↗</span></button></div><div class="progress-track"><span id="detail-progress-bar"></span></div></div>
     <div class="book-list" id="book-list"></div>
     <div class="detail-footer"><span><i class="legend-dot legend-dot--issued"></i>Entregue <i class="legend-dot legend-dot--returned"></i>Devolvido</span><button class="button button--secondary" type="button" data-close="student-detail-dialog">Concluir</button></div>
   </dialog>
 
-  <dialog id="qr-scan-dialog" class="dialog dialog--signature">
-    <div class="dialog-heading"><div><span class="eyebrow">VALIDAÇÃO DO ESTUDANTE</span><h2>Escaneie o QR Code</h2><p id="qr-scan-status" role="alert" aria-live="polite">Peça ao estudante para gerar um QR Code no celular.</p></div><button class="dialog-close" type="button" data-close="qr-scan-dialog" aria-label="Fechar">×</button></div>
-    <video id="qr-camera" class="qr-camera" playsinline muted hidden></video>
-    <form id="qr-manual-form" class="qr-manual-form">
-      <label class="field-label" for="qr-manual-code">Se não for possível ler o QR, digite o código de 6 dígitos mostrado pelo estudante</label>
-      <input class="text-input qr-manual-code" id="qr-manual-code" type="text" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" aria-describedby="qr-scan-status" required>
-      <button class="button button--secondary" type="submit">Confirmar código</button>
+  <dialog id="enrollment-confirmation-dialog" class="dialog dialog--form">
+    <form id="enrollment-confirmation-form">
+      <div class="dialog-heading"><div><span class="eyebrow">CONFIRMAÇÃO DA ENTREGA</span><h2>Confirme a matrícula</h2><p>Peça ao estudante que informe a matrícula e digite-a para confirmar a entrega do livro.</p></div><button class="dialog-close" type="button" data-close="enrollment-confirmation-dialog" aria-label="Fechar">×</button></div>
+      <p class="signature-consent"><strong id="checkout-student-name"></strong> · Matrícula cadastrada: <strong id="checkout-student-enrollment"></strong></p>
+      <label class="field-label" for="enrollment-confirmation-input">Matrícula informada pelo estudante</label>
+      <input class="text-input" id="enrollment-confirmation-input" type="text" maxlength="30" autocomplete="off" required>
+      <div class="dialog-actions"><button class="button button--secondary" type="button" data-close="enrollment-confirmation-dialog">Cancelar</button><button class="button button--primary" type="submit">Confirmar matrícula <span>→</span></button></div>
     </form>
-    <div class="dialog-actions"><button class="button button--secondary" type="button" data-close="qr-scan-dialog">Cancelar</button></div>
   </dialog>
 
   <dialog id="signature-dialog" class="dialog dialog--signature">
@@ -182,16 +180,6 @@
       <p id="history-action-message" class="history-action-message" role="status" aria-live="polite"></p>
     </section>
     <div class="dialog-actions history-close"><button class="button button--secondary" type="button" data-close="book-history-dialog">Fechar</button></div>
-  </dialog>
-
-  <dialog id="student-access-dialog" class="dialog dialog--form">
-    <div class="dialog-heading"><div><span class="eyebrow">ACESSO DO ESTUDANTE</span><h2>Código temporário</h2><p>Entregue-o ao estudante após conferir sua identidade. Ele será exibido somente agora.</p></div><button class="dialog-close" type="button" data-close="student-access-dialog" aria-label="Fechar">×</button></div>
-    <p class="student-temp-password" id="student-temp-password"></p>
-    <p class="signature-consent student-access-instructions">Peça ao estudante para escanear este QR Code com a câmera do celular para abrir a tela de acesso:</p>
-    <img class="student-portal-qr" id="student-portal-qr" alt="QR Code para abrir o portal do estudante">
-    <a class="student-portal-url" id="student-portal-url" target="_blank" rel="noopener"></a>
-    <p class="signature-consent student-access-instructions">Na tela aberta, o estudante entra com a matrícula e o código temporário e cria uma senha pessoal. A redefinição invalida sessões e QR Codes ainda não utilizados.</p>
-    <div class="dialog-actions"><button class="button button--secondary" type="button" data-close="student-access-dialog">Fechar</button></div>
   </dialog>
 
   <div id="print-container" class="print-container" aria-hidden="true"></div>

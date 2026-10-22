@@ -19,12 +19,10 @@ class LibraryAppTest(unittest.TestCase):
                 "SECRET_KEY": "test-only-secret-key-for-tests-32bytes",
                 "DATABASE_PATH": str(database_path),
                 "SCHOOL_YEAR": 2026,
-                "PUBLIC_BASE_URL": "https://acervo.ifc.edu.br",
             }
         )
         create_user(str(database_path), "servidor@ifc.edu.br", "senha-segura-de-teste")
         self.client = self.app.test_client()
-        self.student_passwords = {}
 
     def tearDown(self):
         self.temp_dir.cleanup()
@@ -41,72 +39,6 @@ class LibraryAppTest(unittest.TestCase):
             headers={"X-CSRF-Token": token},
         )
 
-    def student_qr_code(self, enrollment):
-        database_path = self.app.config["DATABASE_PATH"]
-        if not repository.find_user(database_path, "fabricio.bizotto@ifc.edu.br"):
-            create_user(
-                database_path,
-                "fabricio.bizotto@ifc.edu.br",
-                "senha-admin-segura",
-            )
-        admin = self.app.test_client()
-        admin_csrf = admin.get("/api/auth/session").get_json()["csrf_token"]
-        admin_login = admin.post(
-            "/api/auth/login",
-            json={
-                "email": "fabricio.bizotto@ifc.edu.br",
-                "password": "senha-admin-segura",
-            },
-            headers={"X-CSRF-Token": admin_csrf},
-        )
-        self.assertEqual(admin_login.status_code, 200)
-        admin_csrf = admin_login.get_json()["csrf_token"]
-        password = self.student_passwords.get(enrollment)
-        if password is None:
-            reset = admin.post(
-                f"/api/students/{enrollment}/student-access",
-                json={},
-                headers={"X-CSRF-Token": admin_csrf},
-            )
-            self.assertEqual(reset.status_code, 200)
-            reset_result = reset.get_json()
-            temporary_password = reset_result["temporary_password"]
-            self.assertRegex(temporary_password, r"^\d{4}$")
-            self.assertEqual(
-                reset_result["portal_url"], "https://acervo.ifc.edu.br/aluno"
-            )
-            self.assertTrue(reset_result["portal_qr_data"].startswith("data:image/svg+xml;base64,"))
-            password = "senha-estudante-segura-123"
-            self.student_passwords[enrollment] = password
-        else:
-            temporary_password = None
-
-        student = self.app.test_client()
-        student_csrf = student.get("/api/student-auth/session").get_json()["csrf_token"]
-        login_password = temporary_password or password
-        logged_in = student.post(
-            "/api/student-auth/login",
-            json={"enrollment": enrollment, "password": login_password},
-            headers={"X-CSRF-Token": student_csrf},
-        )
-        self.assertEqual(logged_in.status_code, 200)
-        student_csrf = logged_in.get_json()["csrf_token"]
-        if temporary_password:
-            changed = student.post(
-                "/api/student-auth/password",
-                json={"new_password": password},
-                headers={"X-CSRF-Token": student_csrf},
-            )
-            self.assertEqual(changed.status_code, 200)
-            student_csrf = changed.get_json().get("csrf_token", student_csrf)
-        issued = student.post(
-            "/api/student-auth/qr",
-            json={},
-            headers={"X-CSRF-Token": student_csrf},
-        )
-        self.assertEqual(issued.status_code, 200)
-        return issued.get_json()["code"]
-
     def test_login_requires_ifc_email(self):
         token = self.csrf()
         response = self.client.post(
@@ -116,7 +48,7 @@ class LibraryAppTest(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 400)
 
-    def test_student_qr_is_required_student_bound_and_reusable_until_expiration(self):
+    def test_checkout_requires_the_selected_students_enrollment(self):
         self.login()
         created = self.client.post(
             "/api/students",
@@ -128,118 +60,30 @@ class LibraryAppTest(unittest.TestCase):
             b"\x89PNG\r\n\x1a\nvalid-test-image"
         ).decode()
 
-        missing_qr = self.client.put(
+        missing_enrollment = self.client.put(
             "/api/students/2026001/books/portugues-2026-1/checkout",
             json={"signature": signature},
             headers={"X-CSRF-Token": self.csrf()},
         )
-        self.assertEqual(missing_qr.status_code, 400)
-
-        qr_code = self.student_qr_code("2026001")
-        self.assertRegex(qr_code, r"^\d{6}$")
-        wrong_student = self.client.post(
-            "/api/student-qr/verify",
-            json={"code": qr_code, "enrollment": "2026002"},
+        self.assertEqual(missing_enrollment.status_code, 400)
+        mismatched_enrollment = self.client.put(
+            "/api/students/2026001/books/portugues-2026-1/checkout",
+            json={"signature": signature, "enrollment_confirmation": "2026002"},
             headers={"X-CSRF-Token": self.csrf()},
         )
-        self.assertEqual(wrong_student.status_code, 409)
-        self.assertEqual(
-            wrong_student.get_json()["error"],
-            "Este QR Code pertence a outro estudante. Confira a matrícula selecionada.",
-        )
-        valid_student = self.client.post(
-            "/api/student-qr/verify",
-            json={"code": qr_code, "enrollment": "2026001"},
-            headers={"X-CSRF-Token": self.csrf()},
-        )
-        self.assertEqual(valid_student.status_code, 200)
+        self.assertEqual(mismatched_enrollment.status_code, 400)
         checked_out = self.client.put(
             "/api/students/2026001/books/portugues-2026-1/checkout",
-            json={"signature": signature, "student_qr_code": qr_code},
+            json={"signature": signature, "enrollment_confirmation": "2026001"},
             headers={"X-CSRF-Token": self.csrf()},
         )
         self.assertEqual(checked_out.status_code, 200)
         second_checkout = self.client.put(
             "/api/students/2026001/books/matematica-2026-1/checkout",
-            json={"signature": signature, "student_qr_code": qr_code},
+            json={"signature": signature, "enrollment_confirmation": "2026001"},
             headers={"X-CSRF-Token": self.csrf()},
         )
         self.assertEqual(second_checkout.status_code, 200)
-        qr_still_valid = self.client.post(
-            "/api/student-qr/verify",
-            json={"code": qr_code, "enrollment": "2026001"},
-            headers={"X-CSRF-Token": self.csrf()},
-        )
-        self.assertEqual(qr_still_valid.status_code, 200)
-        database = sqlite3.connect(self.app.config["DATABASE_PATH"])
-        try:
-            database.execute(
-                "UPDATE student_qr_tokens SET expires_at = 0 WHERE code = ?",
-                (qr_code,),
-            )
-            database.commit()
-        finally:
-            database.close()
-        expired = self.client.post(
-            "/api/student-qr/verify",
-            json={"code": qr_code, "enrollment": "2026001"},
-            headers={"X-CSRF-Token": self.csrf()},
-        )
-        self.assertEqual(expired.status_code, 401)
-        self.assertEqual(
-            expired.get_json()["error"],
-            "Código inválido ou expirado. Peça ao estudante para gerar um novo QR Code.",
-        )
-
-        old_code = self.student_qr_code("2026001")
-        admin = self.app.test_client()
-        admin_csrf = admin.get("/api/auth/session").get_json()["csrf_token"]
-        admin_login = admin.post(
-            "/api/auth/login",
-            json={
-                "email": "fabricio.bizotto@ifc.edu.br",
-                "password": "senha-admin-segura",
-            },
-            headers={"X-CSRF-Token": admin_csrf},
-        )
-        admin_csrf = admin_login.get_json()["csrf_token"]
-        reset = admin.post(
-            "/api/students/2026001/student-access",
-            json={},
-            headers={"X-CSRF-Token": admin_csrf},
-        )
-        self.assertEqual(reset.status_code, 200)
-        invalidated = self.client.post(
-            "/api/student-qr/verify",
-            json={"code": old_code, "enrollment": "2026001"},
-            headers={"X-CSRF-Token": self.csrf()},
-        )
-        self.assertEqual(invalidated.status_code, 401)
-
-    def test_qr_code_validation_is_rate_limited_for_server(self):
-        self.login()
-        created = self.client.post(
-            "/api/students",
-            json={"name": "Ana Silva", "enrollment": "2026001", "grade": "1º"},
-            headers={"X-CSRF-Token": self.csrf()},
-        )
-        self.assertEqual(created.status_code, 201)
-        qr_code = self.student_qr_code("2026001")
-        invalid_code = f"{(int(qr_code) + 1) % 1_000_000:06d}"
-        for _ in range(5):
-            response = self.client.post(
-                "/api/student-qr/verify",
-                json={"code": invalid_code, "enrollment": "2026001"},
-                headers={"X-CSRF-Token": self.csrf()},
-            )
-        self.assertEqual(response.status_code, 429)
-        self.assertIn("Aguarde 15 minutos", response.get_json()["error"])
-        blocked_correct_code = self.client.post(
-            "/api/student-qr/verify",
-            json={"code": qr_code, "enrollment": "2026001"},
-            headers={"X-CSRF-Token": self.csrf()},
-        )
-        self.assertEqual(blocked_correct_code.status_code, 429)
 
     def test_book_signature_history_and_cancellation_preserve_all_events(self):
         self.login()
@@ -256,7 +100,7 @@ class LibraryAppTest(unittest.TestCase):
             "/api/students/2026001/books/portugues-2026-1/checkout",
             json={
                 "signature": signature,
-                "student_qr_code": self.student_qr_code("2026001"),
+                "enrollment_confirmation": "2026001",
             },
             headers={"X-CSRF-Token": self.csrf()},
         )
@@ -329,63 +173,6 @@ class LibraryAppTest(unittest.TestCase):
             "A assinatura ficou ilegível e será refeita.",
         )
         self.assertEqual(history[0]["actor_email"], "servidor@ifc.edu.br")
-
-    def test_student_portal_is_publicly_rendered(self):
-        response = self.client.get("/aluno")
-        self.assertEqual(response.status_code, 200)
-        self.assertIn(b"student-login-form", response.data)
-
-    def test_four_digit_temporary_code_is_rate_limited(self):
-        self.login()
-        created = self.client.post(
-            "/api/students",
-            json={"name": "Ana Silva", "enrollment": "2026001", "grade": "1º"},
-            headers={"X-CSRF-Token": self.csrf()},
-        )
-        self.assertEqual(created.status_code, 201)
-
-        database_path = self.app.config["DATABASE_PATH"]
-        if not repository.find_user(database_path, "fabricio.bizotto@ifc.edu.br"):
-            create_user(
-                database_path,
-                "fabricio.bizotto@ifc.edu.br",
-                "senha-admin-segura",
-            )
-        admin = self.app.test_client()
-        admin_csrf = admin.get("/api/auth/session").get_json()["csrf_token"]
-        admin_login = admin.post(
-            "/api/auth/login",
-            json={
-                "email": "fabricio.bizotto@ifc.edu.br",
-                "password": "senha-admin-segura",
-            },
-            headers={"X-CSRF-Token": admin_csrf},
-        )
-        access = admin.post(
-            "/api/students/2026001/student-access",
-            json={},
-            headers={"X-CSRF-Token": admin_login.get_json()["csrf_token"]},
-        )
-        self.assertEqual(access.status_code, 200)
-        temporary_code = access.get_json()["temporary_password"]
-        self.assertRegex(temporary_code, r"^\d{4}$")
-
-        student = self.app.test_client()
-        for _ in range(5):
-            csrf = student.get("/api/student-auth/session").get_json()["csrf_token"]
-            failed = student.post(
-                "/api/student-auth/login",
-                json={"enrollment": "2026001", "password": "not-the-code"},
-                headers={"X-CSRF-Token": csrf},
-            )
-            self.assertEqual(failed.status_code, 401)
-        csrf = student.get("/api/student-auth/session").get_json()["csrf_token"]
-        locked = student.post(
-            "/api/student-auth/login",
-            json={"enrollment": "2026001", "password": temporary_code},
-            headers={"X-CSRF-Token": csrf},
-        )
-        self.assertEqual(locked.status_code, 429)
 
     def test_designated_admin_can_manage_accounts_and_regular_users_cannot(self):
         database_path = self.app.config["DATABASE_PATH"]
@@ -669,7 +456,7 @@ class LibraryAppTest(unittest.TestCase):
             "/api/students/2026001/books/portugues-2026-1/checkout",
             json={
                 "signature": signature,
-                "student_qr_code": self.student_qr_code("2026001"),
+                "enrollment_confirmation": "2026001",
             },
             headers={"X-CSRF-Token": self.csrf()},
         )
@@ -686,7 +473,7 @@ class LibraryAppTest(unittest.TestCase):
             "/api/students/2026001/books/matematica-2026-1/checkout",
             json={
                 "signature": signature,
-                "student_qr_code": self.student_qr_code("2026001"),
+                "enrollment_confirmation": "2026001",
             },
             headers={"X-CSRF-Token": self.csrf()},
         )
@@ -722,7 +509,7 @@ class LibraryAppTest(unittest.TestCase):
             "/api/students/2026001/books/historia/checkout",
             json={
                 "signature": signature,
-                "student_qr_code": self.student_qr_code("2026001"),
+                "enrollment_confirmation": "2026001",
             },
             headers={"X-CSRF-Token": self.csrf()},
         )
@@ -757,7 +544,7 @@ class LibraryAppTest(unittest.TestCase):
             "/api/students/2026001/books/portugues-2026-1/checkout",
             json={
                 "signature": signature,
-                "student_qr_code": self.student_qr_code("2026001"),
+                "enrollment_confirmation": "2026001",
             },
             headers={"X-CSRF-Token": self.csrf()},
         )
@@ -799,7 +586,7 @@ class LibraryAppTest(unittest.TestCase):
                     "/api/students/2026001/books/ingles/checkout",
                     json={
                         "signature": signature,
-                        "student_qr_code": self.student_qr_code("2026001"),
+                        "enrollment_confirmation": "2026001",
                     },
                     headers={"X-CSRF-Token": self.csrf()},
                 )
@@ -917,31 +704,74 @@ class LibraryAppTest(unittest.TestCase):
         self.assertIn(b"Aviso de Privacidade", page.data)
         self.assertRegex(page.data, rb"/static/styles\.css\?v=\d+")
         self.assertRegex(page.data, rb"/static/app\.js\?v=\d+")
-        self.assertRegex(
-            page.data,
-            rb"/static/vendor/qr-scanner/qr-scanner\.umd\.min\.js\?v=\d+",
-        )
+        self.assertIn(b"Confirme a matr\xc3\xadcula", page.data)
+        self.assertNotIn(b"QR Code", page.data)
         privacy = self.client.get("/privacidade")
         self.assertEqual(privacy.status_code, 200)
         self.assertRegex(privacy.data, rb"/static/styles\.css\?v=\d+")
         self.assertIn("15 a 17 anos".encode(), privacy.data)
         self.assertIn("controle interno e arquivo".encode(), privacy.data)
-        student_portal = self.client.get("/aluno")
-        self.assertEqual(student_portal.status_code, 200)
-        self.assertRegex(student_portal.data, rb"/static/styles\.css\?v=\d+")
-        self.assertRegex(student_portal.data, rb"/static/student\.js\?v=\d+")
+        self.assertEqual(self.client.get("/aluno").status_code, 404)
+        self.assertEqual(self.client.get("/api/student-auth/session").status_code, 404)
+        self.assertEqual(
+            self.client.post("/api/student-qr/verify").status_code,
+            404,
+        )
         with self.client.get("/static/styles.css") as styles:
             self.assertEqual(styles.status_code, 200)
         with self.client.get("/static/app.js") as script:
             self.assertEqual(script.status_code, 200)
-        with self.client.get(
-            "/static/vendor/qr-scanner/qr-scanner.umd.min.js"
-        ) as scanner:
-            self.assertEqual(scanner.status_code, 200)
-        with self.client.get(
-            "/static/vendor/qr-scanner/qr-scanner-worker.min.js"
-        ) as worker:
-            self.assertEqual(worker.status_code, 200)
+        self.assertEqual(
+            self.client.get("/static/vendor/qr-scanner/qr-scanner.umd.min.js").status_code,
+            404,
+        )
+        database_path = self.app.config["DATABASE_PATH"]
+        database = sqlite3.connect(database_path)
+        try:
+            initial_tables = {
+                row[0]
+                for row in database.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table'"
+                )
+            }
+            self.assertTrue(
+                {"student_credentials", "student_qr_tokens", "student_qr_attempts"}.isdisjoint(
+                    initial_tables
+                )
+            )
+            database.executescript(
+                """
+                CREATE TABLE student_credentials (enrollment TEXT PRIMARY KEY);
+                CREATE TABLE student_qr_tokens (code TEXT PRIMARY KEY);
+                CREATE TABLE student_qr_attempts (user_id INTEGER PRIMARY KEY);
+                """
+            )
+            database.execute(
+                "INSERT INTO student_credentials (enrollment) VALUES ('historical-student')"
+            )
+            database.commit()
+        finally:
+            database.close()
+        repository.initialize_db(database_path, 2026)
+        database = sqlite3.connect(database_path)
+        try:
+            tables = {
+                row[0]
+                for row in database.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table'"
+                )
+            }
+            historical_enrollment = database.execute(
+                "SELECT enrollment FROM student_credentials"
+            ).fetchone()[0]
+        finally:
+            database.close()
+        self.assertTrue(
+            {"student_credentials", "student_qr_tokens", "student_qr_attempts"}.issubset(
+                tables
+            )
+        )
+        self.assertEqual(historical_enrollment, "historical-student")
 
 
 if __name__ == "__main__":

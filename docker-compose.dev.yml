@@ -21,7 +21,6 @@ services:
       COOKIE_SECURE: "false"
       FLASK_DEBUG: "1"
       SCHOOL_YEAR: ${SCHOOL_YEAR:-}
-      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:5000}
     depends_on:
       database-init:
         condition: service_completed_successfully
