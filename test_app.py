@@ -22,6 +22,16 @@ class LibraryAppTest(unittest.TestCase):
             }
         )
         create_user(str(database_path), "servidor@ifc.edu.br", "senha-segura-de-teste")
+        self.informatics_course_id = next(
+            course["id"]
+            for course in repository.list_courses(str(database_path))
+            if "Informática" in course["name"]
+        )
+        self.administration_course_id = next(
+            course["id"]
+            for course in repository.list_courses(str(database_path))
+            if "Administração" in course["name"]
+        )
         self.client = self.app.test_client()
         self.student_passwords = {}
 
@@ -113,7 +123,7 @@ class LibraryAppTest(unittest.TestCase):
         self.login()
         self.client.post(
             "/api/students",
-            json={"name": "Ana Silva", "enrollment": "2026000001", "grade": "1º"},
+            json={"name": "Ana Silva", "enrollment": "2026000001", "grade": "1º", "course_id": self.informatics_course_id},
             headers={"X-CSRF-Token": self.csrf()},
         )
         denied = self.client.post(
@@ -169,7 +179,7 @@ class LibraryAppTest(unittest.TestCase):
 
         created = admin.post(
             "/api/students",
-            json={"name": "João Souza", "enrollment": "2028000001", "grade": "1º"},
+            json={"name": "João Souza", "enrollment": "2028000001", "grade": "1º", "course_id": self.informatics_course_id},
             headers={"X-CSRF-Token": admin_csrf},
         )
         self.assertEqual(created.status_code, 201)
@@ -211,7 +221,7 @@ class LibraryAppTest(unittest.TestCase):
         self.login()
         created = self.client.post(
             "/api/students",
-            json={"name": "Old development student", "enrollment": "2026000003", "grade": "1º"},
+            json={"name": "Old development student", "enrollment": "2026000003", "grade": "1º", "course_id": self.informatics_course_id},
             headers={"X-CSRF-Token": self.csrf()},
         )
         self.assertEqual(created.status_code, 201)
@@ -251,7 +261,7 @@ class LibraryAppTest(unittest.TestCase):
         self.login()
         created = self.client.post(
             "/api/students",
-            json={"name": "Ana Silva", "enrollment": "2026000001", "grade": "1º"},
+            json={"name": "Ana Silva", "enrollment": "2026000001", "grade": "1º", "course_id": self.informatics_course_id},
             headers={"X-CSRF-Token": self.csrf()},
         )
         self.assertEqual(created.status_code, 201)
@@ -288,7 +298,7 @@ class LibraryAppTest(unittest.TestCase):
         self.login()
         self.client.post(
             "/api/students",
-            json={"name": "Ana Silva", "enrollment": "2026000001", "grade": "1º"},
+            json={"name": "Ana Silva", "enrollment": "2026000001", "grade": "1º", "course_id": self.informatics_course_id},
             headers={"X-CSRF-Token": self.csrf()},
         )
         signature = "data:image/png;base64," + base64.b64encode(
@@ -330,7 +340,7 @@ class LibraryAppTest(unittest.TestCase):
         self.login()
         created = self.client.post(
             "/api/students",
-            json={"name": "Ana Silva", "enrollment": "2026000001", "grade": "1º"},
+            json={"name": "Ana Silva", "enrollment": "2026000001", "grade": "1º", "course_id": self.informatics_course_id},
             headers={"X-CSRF-Token": self.csrf()},
         )
         self.assertEqual(created.status_code, 201)
@@ -521,6 +531,102 @@ class LibraryAppTest(unittest.TestCase):
         )
         self.assertEqual(self_demote.status_code, 409)
 
+    def test_admin_can_manage_courses_and_students_must_be_assigned(self):
+        database_path = self.app.config["DATABASE_PATH"]
+        create_user(
+            database_path,
+            "fabricio.bizotto@ifc.edu.br",
+            "senha-admin-segura",
+        )
+        admin = self.app.test_client()
+        admin_csrf = admin.get("/api/auth/session").get_json()["csrf_token"]
+        login_response = admin.post(
+            "/api/auth/login",
+            json={
+                "email": "fabricio.bizotto@ifc.edu.br",
+                "password": "senha-admin-segura",
+            },
+            headers={"X-CSRF-Token": admin_csrf},
+        )
+        self.assertEqual(login_response.status_code, 200)
+        admin_csrf = login_response.get_json()["csrf_token"]
+
+        courses = admin.get("/api/courses").get_json()["courses"]
+        self.assertEqual(len(courses), 2)
+        self.login()
+        denied = self.client.post(
+            "/api/courses",
+            json={"name": "Curso restrito"},
+            headers={"X-CSRF-Token": self.csrf()},
+        )
+        self.assertEqual(denied.status_code, 403)
+
+        created = admin.post(
+            "/api/courses",
+            json={"name": "Técnico em Gestão Integrado ao Ensino Médio"},
+            headers={"X-CSRF-Token": admin_csrf},
+        )
+        self.assertEqual(created.status_code, 201)
+        course = created.get_json()
+        duplicate = admin.post(
+            "/api/courses",
+            json={"name": "técnico em gestão integrado ao ensino médio"},
+            headers={"X-CSRF-Token": admin_csrf},
+        )
+        self.assertEqual(duplicate.status_code, 409)
+
+        student = admin.post(
+            "/api/students",
+            json={
+                "name": "Estudante de Gestão",
+                "enrollment": "2026304710",
+                "grade": "1º",
+                "course_id": course["id"],
+            },
+            headers={"X-CSRF-Token": admin_csrf},
+        )
+        self.assertEqual(student.status_code, 201)
+        self.assertEqual(student.get_json()["course_name"], course["name"])
+        deactivated = admin.patch(
+            f"/api/courses/{course['id']}",
+            json={"is_active": False},
+            headers={"X-CSRF-Token": admin_csrf},
+        )
+        self.assertEqual(deactivated.status_code, 200)
+        self.assertFalse(deactivated.get_json()["is_active"])
+        archived_link = admin.get("/api/students/2026304710").get_json()
+        self.assertEqual(archived_link["course_name"], course["name"])
+        unavailable_course = admin.post(
+            "/api/students",
+            json={
+                "name": "Outro estudante",
+                "enrollment": "2026304711",
+                "grade": "1º",
+                "course_id": course["id"],
+            },
+            headers={"X-CSRF-Token": admin_csrf},
+        )
+        self.assertEqual(unavailable_course.status_code, 400)
+        reactivated = admin.patch(
+            f"/api/courses/{course['id']}",
+            json={"is_active": True},
+            headers={"X-CSRF-Token": admin_csrf},
+        )
+        self.assertEqual(reactivated.status_code, 200)
+        for seeded_course in courses:
+            disabled = admin.patch(
+                f"/api/courses/{seeded_course['id']}",
+                json={"is_active": False},
+                headers={"X-CSRF-Token": admin_csrf},
+            )
+            self.assertEqual(disabled.status_code, 200)
+        last_course = admin.patch(
+            f"/api/courses/{course['id']}",
+            json={"is_active": False},
+            headers={"X-CSRF-Token": admin_csrf},
+        )
+        self.assertEqual(last_course.status_code, 409)
+
     def test_existing_user_table_is_migrated_and_designated_admin_promoted(self):
         database_path = Path(self.temp_dir.name) / "legacy-users.db"
         from werkzeug.security import generate_password_hash
@@ -574,14 +680,14 @@ class LibraryAppTest(unittest.TestCase):
         token = self.csrf()
         invalid_enrollment = self.client.post(
             "/api/students",
-            json={"name": "Matrícula inválida", "enrollment": "202630471", "grade": "2º"},
+            json={"name": "Matrícula inválida", "enrollment": "202630471", "grade": "2º", "course_id": self.informatics_course_id},
             headers={"X-CSRF-Token": token},
         )
         self.assertEqual(invalid_enrollment.status_code, 400)
         self.assertIn("exatamente 10 números", invalid_enrollment.get_json()["error"])
         response = self.client.post(
             "/api/students",
-            json={"name": "Ana Silva", "enrollment": "2026304710", "grade": "2º"},
+            json={"name": "Ana Silva", "enrollment": "2026304710", "grade": "2º", "course_id": self.informatics_course_id},
             headers={"X-CSRF-Token": token},
         )
         self.assertEqual(response.status_code, 201)
@@ -591,7 +697,7 @@ class LibraryAppTest(unittest.TestCase):
         self.assertEqual(books[-1]["title"], "Do seu jeito — Matemática — Volume 2")
         duplicate = self.client.post(
             "/api/students",
-            json={"name": "Outra aluna", "enrollment": "2026304710", "grade": "1º"},
+            json={"name": "Outra aluna", "enrollment": "2026304710", "grade": "1º", "course_id": self.informatics_course_id},
             headers={"X-CSRF-Token": self.csrf()},
         )
         self.assertEqual(duplicate.status_code, 409)
@@ -601,17 +707,18 @@ class LibraryAppTest(unittest.TestCase):
         headers = {"X-CSRF-Token": self.csrf()}
         self.client.post(
             "/api/students",
-            json={"name": "Ana cadastrada", "enrollment": "2026000001", "grade": "1º"},
+            json={"name": "Ana cadastrada", "enrollment": "2026000001", "grade": "1º", "course_id": self.informatics_course_id},
             headers=headers,
         )
         csv_content = (
-            "\ufeffMatrícula;Nome;Turma\n"
-            "2026000001;Ana atualizada;3º\n"
-            "2026000002;João da Silva;2º ano\n"
-            "2026000002;Duplicada no arquivo;1°\n"
-            ";Sem matrícula;3\n"
-            "2026000004;Turma inválida;4\n"
-            "ABC1234567;Não numérica;1º\n"
+            "\ufeffMatrícula;Nome;Turma;Curso\n"
+            "2026000001;Ana atualizada;3º;Técnico em Informática Integrado ao Ensino Médio\n"
+            "2026000002;João da Silva;2º ano;Técnico em Administração Integrado ao Ensino Médio\n"
+            "2026000002;Duplicada no arquivo;1°;Técnico em Administração Integrado ao Ensino Médio\n"
+            ";Sem matrícula;3;Técnico em Informática Integrado ao Ensino Médio\n"
+            "2026000004;Turma inválida;4;Técnico em Informática Integrado ao Ensino Médio\n"
+            "ABC1234567;Não numérica;1º;Técnico em Informática Integrado ao Ensino Médio\n"
+            "2026000005;Curso desconhecido;1º;Técnico em Curso Desconhecido\n"
         ).encode("utf-8")
 
         response = self.client.post(
@@ -626,11 +733,12 @@ class LibraryAppTest(unittest.TestCase):
             {
                 "imported": 1,
                 "ignored": 2,
-                "invalid": 3,
+                "invalid": 4,
                 "errors": [
                     {"line": 5, "reason": "matrícula inválida"},
                     {"line": 6, "reason": "turma deve ser 1º, 2º ou 3º"},
                     {"line": 7, "reason": "matrícula inválida"},
+                    {"line": 8, "reason": "curso inválido ou inativo"},
                 ],
             },
         )
@@ -639,6 +747,10 @@ class LibraryAppTest(unittest.TestCase):
         imported_student = self.client.get("/api/students/2026000002").get_json()
         self.assertEqual(imported_student["name"], "João da Silva")
         self.assertEqual(imported_student["grade"], "2º")
+        self.assertEqual(
+            imported_student["course_name"],
+            "Técnico em Administração Integrado ao Ensino Médio",
+        )
         self.assertEqual(len(imported_student["books"]), 15)
 
         repeated = self.client.post(
@@ -675,7 +787,7 @@ class LibraryAppTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("text/csv", response.content_type)
         self.assertIn("modelo-estudantes.csv", response.headers["Content-Disposition"])
-        self.assertTrue(response.data.startswith(b"\xef\xbb\xbfmatricula;nome;turma\r\n"))
+        self.assertTrue(response.data.startswith(b"\xef\xbb\xbfmatricula;nome;turma;curso\r\n"))
 
         imported = self.client.post(
             "/api/students/import",
@@ -690,7 +802,7 @@ class LibraryAppTest(unittest.TestCase):
         token = self.csrf()
         self.client.post(
             "/api/students",
-            json={"name": "Ana Silva", "enrollment": "2026000001", "grade": "1º"},
+            json={"name": "Ana Silva", "enrollment": "2026000001", "grade": "1º", "course_id": self.informatics_course_id},
             headers={"X-CSRF-Token": token},
         )
         signature = "data:image/png;base64," + base64.b64encode(
@@ -730,7 +842,11 @@ class LibraryAppTest(unittest.TestCase):
         self.assertEqual(previous_grade_math.status_code, 200)
         updated = self.client.put(
             "/api/students/2026000001",
-            json={"name": "Ana Silva", "grade": "2º"},
+            json={
+                "name": "Ana Silva",
+                "grade": "2º",
+                "course_id": self.informatics_course_id,
+            },
             headers={"X-CSRF-Token": self.csrf()},
         )
         self.assertEqual(updated.status_code, 200)
@@ -749,7 +865,7 @@ class LibraryAppTest(unittest.TestCase):
         token = self.csrf()
         self.client.post(
             "/api/students",
-            json={"name": "Ana Silva", "enrollment": "2026000001", "grade": "1º"},
+            json={"name": "Ana Silva", "enrollment": "2026000001", "grade": "1º", "course_id": self.informatics_course_id},
             headers={"X-CSRF-Token": token},
         )
         signature = "data:image/png;base64," + base64.b64encode(
@@ -935,6 +1051,10 @@ class LibraryAppTest(unittest.TestCase):
 
         prior_term = find_student(str(database_path), "2026000002", 2026)
         self.assertEqual(prior_term["grade"], "1º")
+        self.assertEqual(
+            prior_term["course_name"],
+            "Técnico em Informática Integrado ao Ensino Médio",
+        )
         migrated_portuguese = next(
             book for book in prior_term["books"] if book["id"] == "portugues-2026-1"
         )
@@ -971,6 +1091,10 @@ class LibraryAppTest(unittest.TestCase):
         self.assertNotIn(b"Gerar acesso do aluno", page.data)
         self.assertIn(b'id="admin-school-year-current"', page.data)
         self.assertIn(b'id="school-year-form"', page.data)
+        self.assertIn(b'id="course-form"', page.data)
+        self.assertIn(b'id="student-course"', page.data)
+        self.assertIn(b'id="dashboard-course-filter"', page.data)
+        self.assertIn(b'id="students-course-filter"', page.data)
         self.assertNotIn(b"QR Code", page.data)
         privacy = self.client.get("/privacidade")
         self.assertEqual(privacy.status_code, 200)

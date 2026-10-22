@@ -39,6 +39,11 @@ def initialize_db(database_path, school_year):
                 grade TEXT NOT NULL CHECK (grade IN ('1º', '2º', '3º')),
                 created_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS courses (
+                id INTEGER PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+                is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1))
+            );
             CREATE TABLE IF NOT EXISTS application_settings (
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
@@ -98,6 +103,28 @@ def initialize_db(database_path, school_year):
             db.execute(
                 "ALTER TABLE users ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1"
             )
+        db.executemany(
+            "INSERT OR IGNORE INTO courses (name) VALUES (?)",
+            [
+                ("Técnico em Informática Integrado ao Ensino Médio",),
+                ("Técnico em Administração Integrado ao Ensino Médio",),
+            ],
+        )
+        student_columns = {
+            row["name"] for row in db.execute("PRAGMA table_info(students)").fetchall()
+        }
+        if "course_id" not in student_columns:
+            db.execute(
+                "ALTER TABLE students ADD COLUMN course_id INTEGER REFERENCES courses(id)"
+            )
+        default_course = db.execute(
+            "SELECT id FROM courses WHERE name = ?",
+            ("Técnico em Informática Integrado ao Ensino Médio",),
+        ).fetchone()
+        db.execute(
+            "UPDATE students SET course_id = ? WHERE course_id IS NULL",
+            (default_course["id"],),
+        )
         db.execute(
             "UPDATE users SET is_admin = 1 WHERE lower(email) = ?",
             ("fabricio.bizotto@ifc.edu.br",),
@@ -153,6 +180,54 @@ def get_school_year(database_path, fallback):
     return int(row["value"]) if row else fallback
 
 
+def list_courses(database_path, include_inactive=False):
+    with database(database_path) as db:
+        rows = db.execute(
+            """SELECT c.id, c.name, c.is_active, COUNT(s.enrollment) AS student_count
+               FROM courses c LEFT JOIN students s ON s.course_id = c.id
+               WHERE (? = 1 OR c.is_active = 1)
+               GROUP BY c.id ORDER BY c.name COLLATE NOCASE""",
+            (int(include_inactive),),
+        ).fetchall()
+    return [{**dict(row), "is_active": bool(row["is_active"])} for row in rows]
+
+
+def find_course(database_path, course_id):
+    with database(database_path) as db:
+        row = db.execute(
+            "SELECT id, name, is_active FROM courses WHERE id = ?",
+            (course_id,),
+        ).fetchone()
+    return {**dict(row), "is_active": bool(row["is_active"])} if row else None
+
+
+def add_course(database_path, name):
+    with database(database_path) as db:
+        cursor = db.execute("INSERT INTO courses (name) VALUES (?)", (name,))
+    return cursor.lastrowid
+
+
+def set_course_active(database_path, course_id, is_active):
+    with database(database_path) as db:
+        db.execute("BEGIN IMMEDIATE")
+        if not is_active:
+            active_count = db.execute(
+                "SELECT COUNT(*) FROM courses WHERE is_active = 1"
+            ).fetchone()[0]
+            course = db.execute(
+                "SELECT is_active FROM courses WHERE id = ?", (course_id,)
+            ).fetchone()
+            if not course:
+                return "not_found"
+            if course["is_active"] and active_count <= 1:
+                return "last_active_course"
+        cursor = db.execute(
+            "UPDATE courses SET is_active = ? WHERE id = ?",
+            (int(is_active), course_id),
+        )
+    return None if cursor.rowcount > 0 else "not_found"
+
+
 def update_school_year(database_path, school_year):
     with database(database_path) as db:
         db.execute("BEGIN IMMEDIATE")
@@ -176,6 +251,10 @@ def reset_dev_students(database_path, school_year, students):
     with database(database_path) as db:
         db.execute("BEGIN IMMEDIATE")
         db.execute("DELETE FROM students")
+        default_course = db.execute(
+            "SELECT id FROM courses WHERE name = ?",
+            ("Técnico em Informática Integrado ao Ensino Médio",),
+        ).fetchone()
         db.execute(
             """INSERT INTO application_settings (key, value) VALUES ('school_year', ?)
                ON CONFLICT(key) DO UPDATE SET value = excluded.value""",
@@ -183,9 +262,9 @@ def reset_dev_students(database_path, school_year, students):
         )
         for enrollment, name, grade, created_at in students:
             db.execute(
-                """INSERT INTO students (enrollment, name, grade, created_at)
-                   VALUES (?, ?, ?, ?)""",
-                (enrollment, name, grade, created_at),
+                """INSERT INTO students (enrollment, name, grade, created_at, course_id)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (enrollment, name, grade, created_at, default_course["id"]),
             )
             _insert_school_year(db, enrollment, school_year, grade)
 
@@ -415,11 +494,12 @@ def update_user(database_path, user_id, is_admin, is_active):
     return None
 
 
-def add_student(database_path, enrollment, name, grade, created_at, school_year):
+def add_student(database_path, enrollment, name, grade, course_id, created_at, school_year):
     with database(database_path) as db:
         db.execute(
-            "INSERT INTO students (enrollment, name, grade, created_at) VALUES (?, ?, ?, ?)",
-            (enrollment, name, grade, created_at),
+            """INSERT INTO students (enrollment, name, grade, created_at, course_id)
+               VALUES (?, ?, ?, ?, ?)""",
+            (enrollment, name, grade, created_at, course_id),
         )
         _insert_school_year(db, enrollment, school_year, grade)
 
@@ -429,13 +509,15 @@ def import_students(database_path, students, school_year):
     with database(database_path) as db:
         for student in students:
             cursor = db.execute(
-                """INSERT OR IGNORE INTO students (enrollment, name, grade, created_at)
-                   VALUES (?, ?, ?, ?)""",
+                """INSERT OR IGNORE INTO students
+                       (enrollment, name, grade, created_at, course_id)
+                   VALUES (?, ?, ?, ?, ?)""",
                 (
                     student["enrollment"],
                     student["name"],
                     student["grade"],
                     student["created_at"],
+                    student["course_id"],
                 ),
             )
             if cursor.rowcount == 0:
@@ -445,7 +527,7 @@ def import_students(database_path, students, school_year):
     return imported
 
 
-def update_student(database_path, enrollment, name, grade, school_year):
+def update_student(database_path, enrollment, name, grade, course_id, school_year):
     with database(database_path) as db:
         current = db.execute(
             "SELECT grade FROM students WHERE enrollment = ?", (enrollment,)
@@ -465,8 +547,8 @@ def update_student(database_path, enrollment, name, grade, school_year):
                 ),
             )
         db.execute(
-            "UPDATE students SET name = ?, grade = ? WHERE enrollment = ?",
-            (name, grade, enrollment),
+            "UPDATE students SET name = ?, grade = ?, course_id = ? WHERE enrollment = ?",
+            (name, grade, course_id, enrollment),
         )
         db.execute(
             """UPDATE student_years SET grade = ?
@@ -480,7 +562,10 @@ def update_student(database_path, enrollment, name, grade, school_year):
 def find_student(database_path, enrollment, school_year=None):
     with database(database_path) as db:
         student = db.execute(
-            "SELECT enrollment, name, grade, created_at FROM students WHERE enrollment = ?",
+            """SELECT s.enrollment, s.name, s.grade, s.created_at,
+                      s.course_id, c.name AS course_name
+               FROM students s JOIN courses c ON c.id = s.course_id
+               WHERE s.enrollment = ?""",
             (enrollment,),
         ).fetchone()
         if not student:
@@ -543,13 +628,15 @@ def list_students(database_path, query, school_year, exact_year=False):
     )
     with database(database_path) as db:
         rows = db.execute(
-            """SELECT s.enrollment, s.name, COALESCE(y.grade, s.grade) AS grade,
+            """SELECT s.enrollment, s.name, s.course_id, c.name AS course_name,
+                      COALESCE(y.grade, s.grade) AS grade,
                       COALESCE(y.status, 'completed') AS status, s.created_at,
                       COUNT(b.book_id) AS total_books,
                       SUM(CASE WHEN b.checkout_signature IS NOT NULL THEN 1 ELSE 0 END) AS checked_out,
                       SUM(CASE WHEN b.checkout_signature IS NOT NULL AND b.return_signature IS NULL
                                THEN 1 ELSE 0 END) AS awaiting_return
                FROM students s
+               JOIN courses c ON c.id = s.course_id
                LEFT JOIN student_years y ON """ + year_join + """
                LEFT JOIN student_year_books yb
                  ON yb.enrollment = y.enrollment AND yb.school_year = y.school_year

@@ -162,6 +162,18 @@ button { cursor: pointer; }
 .filter-chip { min-height: 27px; padding: 0 9px; border: 1px solid transparent; border-radius: 4px; background: transparent; color: #8b958d; font-size: 9px; }
 .filter-chip:hover { color: #476a52; }
 .filter-chip.is-selected { border-color: #e7ede7; background: #f7f9f7; color: #4a6b51; font-weight: 600; }
+.course-filter { flex-wrap: wrap; }
+.course-filter .filter-chip { display: inline-flex; align-items: center; gap: 5px; max-width: 260px; }
+.course-filter .filter-chip::before, .course-pill::before { width: 7px; height: 7px; border-radius: 50%; background: var(--course-color); content: ""; flex: 0 0 7px; }
+.course-pill { max-width: 230px; padding: 5px 8px; border-radius: 4px; display: inline-flex; align-items: center; gap: 6px; overflow: hidden; background: var(--course-bg); color: var(--course-text); font-size: 9px; text-overflow: ellipsis; vertical-align: middle; }
+.course-color-0 { --course-color: #347653; --course-bg: #e9f4ec; --course-text: #286343; }
+.course-color-1 { --course-color: #a852a1; --course-bg: #f7edf6; --course-text: #81437b; }
+.course-color-2 { --course-color: #bd762d; --course-bg: #fbf1e6; --course-text: #8d5720; }
+.course-color-3 { --course-color: #3e79a4; --course-bg: #eaf2f8; --course-text: #315f82; }
+.course-color-4 { --course-color: #b24e55; --course-bg: #f9ecec; --course-text: #8e3e45; }
+.course-color-5 { --course-color: #6c60a6; --course-bg: #f0eef8; --course-text: #554988; }
+.course-filter .filter-chip[class*="course-color-"] { color: var(--course-text); }
+.course-filter .filter-chip[class*="course-color-"].is-selected { border-color: var(--course-color); background: var(--course-bg); }
 .table-scroll { overflow: auto; }
 table { width: 100%; border-collapse: collapse; text-align: left; white-space: nowrap; }
 th { height: 37px; color: #a0a9a2; font-size: 8px; font-weight: 700; letter-spacing: .055em; }
@@ -174,8 +186,9 @@ th:first-child, td:first-child { padding-left: 2px; }
 .mono-cell { color: #79847c; font-variant-numeric: tabular-nums; letter-spacing: .025em; }
 .grade-pill { padding: 5px 8px; border-radius: 4px; background: #f2f5f2; color: #6e7b71; font-size: 9px; }
 .archived-pill { padding: 5px 8px; border: 1px solid #e8e4d8; border-radius: 4px; background: #f8f6ef; color: #82744f; font-size: 9px; }
-.student-filter-groups { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.student-filter-groups { display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
 .student-filter-groups .grade-filter + .grade-filter { border-left: 1px solid #e5e9e5; padding-left: 10px; }
+.student-filter-groups .course-filter { max-width: 420px; }
 .status-pill { display: inline-flex; align-items: center; gap: 6px; padding: 5px 7px; border-radius: 4px; font-size: 9px; }
 .status-pill i, .book-status i { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
 .status-pill--complete { background: #edf5ee; color: #578361; }
@@ -202,6 +215,7 @@ th:first-child, td:first-child { padding-left: 2px; }
 .all-students-card th { height: 37px; }
 .user-management-card { margin-bottom: 18px; padding: 20px; }
 .managed-user-form { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr) auto auto; align-items: end; gap: 14px; }
+.course-management-form { display: grid; grid-template-columns: minmax(180px, 1fr) auto; align-items: end; gap: 14px; margin-bottom: 16px; }
 .managed-user-form .field-label { margin-top: 0; }
 .managed-user-form .text-input, .user-management-card .text-input { height: 40px; }
 .school-year-settings-card .card-heading { margin-bottom: 15px; }
@@ -370,6 +384,7 @@ th:first-child, td:first-child { padding-left: 2px; }
   .page-heading__actions { gap: 6px; }
   .page-heading--students { align-items: flex-start; flex-direction: column; }
   .managed-user-form { grid-template-columns: 1fr; gap: 8px; }
+  .course-management-form { grid-template-columns: 1fr; gap: 8px; }
   .school-year-form { grid-template-columns: 1fr; gap: 10px; }
   .school-year-confirm { padding-bottom: 0; }
   .managed-user-admin { padding: 6px 0; }

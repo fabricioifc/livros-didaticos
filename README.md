@@ -120,8 +120,10 @@ Para atualizar as imagens após mudanças, execute `docker compose up --build -d
 
 ## Fluxo
 
-- Cadastre cada estudante com nome, matrícula única de exatamente 10 dígitos (por exemplo, `2026304710`) e ano (1º, 2º ou 3º). Os termos PDF listam os livros em ordem alfabética pelo título.
-- Na tela **Estudantes**, use **Baixar modelo CSV** para obter uma planilha vazia com os cabeçalhos `matricula`, `nome` e `turma`; preencha-a e importe pelo botão **Importar CSV**. A turma pode ser `1`, `1º`, `1°` ou `1º ano` (equivalente para 2º e 3º). Também são aceitos arquivos separados por vírgula ou tabulação e o cabeçalho `matrícula`. Linhas com matrícula já cadastrada, inclusive repetidas no mesmo arquivo, são ignoradas; linhas inválidas são informadas ao final.
+- Cadastre cada estudante com nome, matrícula única de exatamente 10 dígitos (por exemplo, `2026304710`), curso e ano (1º, 2º ou 3º). Os termos PDF listam os livros em ordem alfabética pelo título.
+- Os cursos **Técnico em Informática Integrado ao Ensino Médio** e **Técnico em Administração Integrado ao Ensino Médio** são cadastrados inicialmente. Administradores podem adicionar cursos na seção **Administração → Cursos** e ativá-los ou desativá-los. Cursos já vinculados a estudantes não são apagados; ao desativá-los, os vínculos e termos existentes permanecem.
+- Na migração, os estudantes que já estavam cadastrados antes da inclusão dos cursos recebem o vínculo inicial com **Técnico em Informática Integrado ao Ensino Médio**. O vínculo pode ser ajustado no cadastro de cada estudante.
+- Na tela **Estudantes**, use **Baixar modelo CSV** para obter uma planilha com os cabeçalhos `matricula`, `nome`, `turma` e `curso`; preencha o curso com o nome cadastrado e importe pelo botão **Importar CSV**. A turma pode ser `1`, `1º`, `1°` ou `1º ano` (equivalente para 2º e 3º). Também são aceitos arquivos separados por vírgula ou tabulação e o cabeçalho `matrícula`. Linhas com matrícula já cadastrada, inclusive repetidas no mesmo arquivo, são ignoradas; linhas inválidas são informadas ao final.
 - Abra o termo, selecione um ou mais livros pendentes e escolha **Assinar entrega dos selecionados**. O estudante vê a lista dos títulos no passo de confirmação e novamente na tela de assinatura; a mesma assinatura é registrada em cada livro selecionado. Antes de assinar, solicite a matrícula verbalmente e digite-a para confirmar que corresponde ao cadastro selecionado.
 - Na tela da assinatura ou ao lado de cada livro, abra **Ver histórico e corrigir registro** / **Histórico** para consultar assinaturas, devoluções e correções anteriores. Se uma entrega ou devolução foi registrada por engano ou a assinatura precisa ser refeita, cancele o registro ativo e informe o motivo. O histórico original não é apagado; cada cancelamento também registra data, servidor responsável e justificativa. Para cancelar uma entrega que já tem devolução registrada, cancele primeiro a devolução.
 - O portal do estudante, a autenticação estudantil e a verificação por QR Code estão desativados. A matrícula informada pelo estudante é digitada pelo servidor no modal antes de iniciar a assinatura da entrega. O sistema também valida no servidor se o valor digitado corresponde à matrícula selecionada. Dados de credenciais antigos, se presentes em um banco existente, são preservados sem uso pela aplicação.
@@ -133,9 +135,9 @@ Para atualizar as imagens após mudanças, execute `docker compose up --build -d
 Exemplo de CSV (UTF-8, cabeçalhos na primeira linha):
 
 ```csv
-matricula;nome;turma
-2026304710;Ana da Silva;1º
-2026304711;João Souza;2º ano
+matricula;nome;turma;curso
+2026304710;Ana da Silva;1º;Técnico em Informática Integrado ao Ensino Médio
+2026304711;João Souza;2º ano;Técnico em Administração Integrado ao Ensino Médio
 ```
 
 Cada ano letivo tem seu próprio termo. Ao iniciar um novo ano, estudantes ativos são promovidos automaticamente (1º→2º e 2º→3º); quem concluiu o 3º ano fica arquivado, sem novo termo ativo. O ciclo, a turma histórica e a relação de títulos de cada termo ficam preservados, e é possível selecionar anos anteriores no detalhe do estudante e exportar o termo daquele ano em PDF.

@@ -89,8 +89,8 @@
         </div>
         <div class="content-card recent-card">
           <div class="card-heading"><div><h2>Estudantes</h2><p>Consulte os termos e acompanhe cada título.</p></div><button class="text-button" data-go="students">Ver todos <span>→</span></button></div>
-          <div class="table-toolbar"><label class="search-box"><span class="search-icon"></span><input id="dashboard-search" type="search" placeholder="Buscar por nome ou matrícula"></label><div class="grade-filter" id="dashboard-grade-filter" data-grade-filter><button class="filter-chip is-selected" data-grade="all">Todas as turmas</button><button class="filter-chip" data-grade="1º">1º ano</button><button class="filter-chip" data-grade="2º">2º ano</button><button class="filter-chip" data-grade="3º">3º ano</button></div></div>
-          <div class="table-scroll"><table><thead><tr><th>ESTUDANTE</th><th>MATRÍCULA</th><th>TURMA</th><th>ENTREGA DOS LIVROS</th><th>DEVOLUÇÃO</th><th></th></tr></thead><tbody id="dashboard-students"></tbody></table></div>
+          <div class="table-toolbar"><label class="search-box"><span class="search-icon"></span><input id="dashboard-search" type="search" placeholder="Buscar por nome ou matrícula"></label><div class="student-filter-groups"><div class="grade-filter" id="dashboard-grade-filter" data-grade-filter><button class="filter-chip is-selected" data-grade="all">Todas as turmas</button><button class="filter-chip" data-grade="1º">1º ano</button><button class="filter-chip" data-grade="2º">2º ano</button><button class="filter-chip" data-grade="3º">3º ano</button></div><div class="grade-filter course-filter" id="dashboard-course-filter" aria-label="Filtrar por curso"></div></div></div>
+          <div class="table-scroll"><table><thead><tr><th>ESTUDANTE</th><th>MATRÍCULA</th><th>CURSO</th><th>TURMA</th><th>ENTREGA DOS LIVROS</th><th>DEVOLUÇÃO</th><th></th></tr></thead><tbody id="dashboard-students"></tbody></table></div>
           <div class="empty-state" id="dashboard-empty" hidden><div class="empty-illustration">✳</div><strong>Nenhum estudante por aqui</strong><span>Cadastre um estudante para começar a registrar as entregas.</span><button class="button button--secondary" data-action="add-student">Cadastrar estudante</button></div>
           <div class="table-footer"><span id="dashboard-count">0 estudantes</span><span>Atualizado em tempo real</span></div>
         </div>
@@ -100,8 +100,8 @@
       <section class="view view--students" id="students-view" hidden>
         <div class="page-heading page-heading--students"><div><span class="eyebrow">CADASTRO E ACOMPANHAMENTO</span><h1>Estudantes</h1><p>Gerencie os termos de entrega e devolução dos livros.</p></div><div class="page-heading__actions"><button class="button button--secondary" id="export-annual-backup-button" type="button"><span class="download-icon">↓</span> Exportar backup anual</button><a class="button button--secondary" id="download-students-template" href="/api/students/import-template"><span class="download-icon">↓</span> Baixar modelo CSV</a><button class="button button--secondary" id="import-students-button" type="button"><span class="import-icon">↑</span> Importar CSV</button><button class="button button--primary" id="add-student-button-list"><span class="plus-icon">+</span> Novo estudante</button><input id="students-csv-input" type="file" accept=".csv,text/csv" hidden></div></div>
         <div class="content-card all-students-card">
-          <div class="table-toolbar table-toolbar--students"><label class="search-box"><span class="search-icon"></span><input id="students-search" type="search" placeholder="Buscar por nome ou matrícula"></label><div class="student-filter-groups"><div class="grade-filter" id="students-grade-filter" data-grade-filter><button class="filter-chip is-selected" data-grade="all">Todas as turmas</button><button class="filter-chip" data-grade="1º">1º ano</button><button class="filter-chip" data-grade="2º">2º ano</button><button class="filter-chip" data-grade="3º">3º ano</button></div><div class="grade-filter" id="student-status-filter"><button class="filter-chip is-selected" data-student-status="active">Ativos</button><button class="filter-chip" data-student-status="completed">Arquivados</button></div></div></div>
-          <div class="table-scroll"><table><thead><tr><th>ESTUDANTE</th><th>MATRÍCULA</th><th>TURMA</th><th>ENTREGA DOS LIVROS</th><th>DEVOLUÇÃO</th><th></th></tr></thead><tbody id="students-table"></tbody></table></div>
+          <div class="table-toolbar table-toolbar--students"><label class="search-box"><span class="search-icon"></span><input id="students-search" type="search" placeholder="Buscar por nome ou matrícula"></label><div class="student-filter-groups"><div class="grade-filter" id="students-grade-filter" data-grade-filter><button class="filter-chip is-selected" data-grade="all">Todas as turmas</button><button class="filter-chip" data-grade="1º">1º ano</button><button class="filter-chip" data-grade="2º">2º ano</button><button class="filter-chip" data-grade="3º">3º ano</button></div><div class="grade-filter course-filter" id="students-course-filter" aria-label="Filtrar por curso"></div><div class="grade-filter" id="student-status-filter"><button class="filter-chip is-selected" data-student-status="active">Ativos</button><button class="filter-chip" data-student-status="completed">Arquivados</button></div></div></div>
+          <div class="table-scroll"><table><thead><tr><th>ESTUDANTE</th><th>MATRÍCULA</th><th>CURSO</th><th>TURMA</th><th>ENTREGA DOS LIVROS</th><th>DEVOLUÇÃO</th><th></th></tr></thead><tbody id="students-table"></tbody></table></div>
           <div class="empty-state" id="students-empty" hidden><div class="empty-illustration">✳</div><strong>Nenhum resultado encontrado</strong><span>Experimente outro nome, matrícula ou turma.</span></div>
           <div class="table-footer"><span id="students-count">0 estudantes</span><span>Atualizado em tempo real</span></div>
         </div>
@@ -110,7 +110,7 @@
 
       <section class="view view--users" id="users-view" hidden>
         <div class="page-heading">
-          <div><span class="eyebrow">ADMINISTRAÇÃO</span><h1>Usuários</h1><p>Gerencie contas de servidores e permissões de acesso.</p></div>
+          <div><span class="eyebrow">ADMINISTRAÇÃO</span><h1>Administração</h1><p>Gerencie cursos, contas de servidores e permissões de acesso.</p></div>
         </div>
         <div class="content-card user-management-card school-year-settings-card">
           <div class="card-heading"><div><h2>Ano letivo</h2><p>Ano atual: <strong id="admin-school-year-current"></strong>. Avançar cria os ciclos e promove os estudantes automaticamente.</p></div></div>
@@ -119,6 +119,15 @@
             <label class="school-year-confirm"><input id="school-year-confirm" type="checkbox" required> Confirmo que revisei o novo ano. A alteração não pode ser desfeita.</label>
             <button class="button button--primary" id="school-year-submit" type="submit">Atualizar ano</button>
           </form>
+        </div>
+        <div class="content-card user-management-card">
+          <div class="card-heading"><div><h2>Cursos</h2><p>Cadastre os cursos disponíveis para vincular aos estudantes. Cursos em uso podem ser desativados sem apagar o histórico.</p></div></div>
+          <form id="course-form" class="course-management-form">
+            <div><label class="field-label" for="course-name">Nome do curso</label><input class="text-input" id="course-name" name="name" maxlength="150" placeholder="Ex.: Técnico em Administração Integrado ao Ensino Médio" required></div>
+            <button class="button button--primary" id="course-submit" type="submit">Cadastrar curso</button>
+          </form>
+          <div class="table-scroll"><table><thead><tr><th>CURSO</th><th>ESTUDANTES</th><th>STATUS</th><th></th></tr></thead><tbody id="courses-table"></tbody></table></div>
+          <div class="empty-state" id="courses-empty" hidden><strong>Nenhum curso cadastrado</strong></div>
         </div>
         <div class="content-card user-management-card">
           <form id="managed-user-form" class="managed-user-form">
@@ -142,6 +151,7 @@
       <div class="dialog-heading"><div><span class="eyebrow">CADASTRO</span><h2 id="student-dialog-title">Adicionar estudante</h2><p>Os dados identificam o termo de compromisso do aluno.</p></div><button class="dialog-close" type="button" data-close="student-dialog" aria-label="Fechar">×</button></div>
       <label class="field-label" for="student-name">Nome completo</label><input class="text-input" id="student-name" name="name" maxlength="150" placeholder="Nome do estudante" required>
       <div class="form-row"><div><label class="field-label" for="student-enrollment">Matrícula</label><input class="text-input" id="student-enrollment" name="enrollment" type="text" inputmode="numeric" pattern="[0-9]{10}" minlength="10" maxlength="10" title="Informe os 10 números da matrícula." placeholder="Ex.: 2026304710" required></div><div><label class="field-label" for="student-grade">Turma</label><select class="text-input" id="student-grade" name="grade" required><option value="" disabled selected>Selecione</option><option value="1º">1º ano</option><option value="2º">2º ano</option><option value="3º">3º ano</option></select></div></div>
+      <label class="field-label" for="student-course">Curso</label><select class="text-input" id="student-course" name="course_id" required><option value="" disabled selected>Selecione o curso</option></select>
       <div class="dialog-actions"><button class="button button--secondary" type="button" data-close="student-dialog">Cancelar</button><button class="button button--primary" id="student-submit" type="submit">Salvar estudante <span>→</span></button></div>
     </form>
   </dialog>

@@ -100,6 +100,35 @@ def get_student(database_path, enrollment, school_year=None):
     return repository.find_student(database_path, enrollment, school_year)
 
 
+def get_courses(database_path, include_inactive=False):
+    return repository.list_courses(database_path, include_inactive)
+
+
+def create_course(database_path, body):
+    name = body.get("name")
+    if not isinstance(name, str) or not name.strip() or len(name.strip()) > 150:
+        raise ServiceError("Informe o nome do curso (até 150 caracteres).", 400)
+    try:
+        course_id = repository.add_course(database_path, name.strip())
+    except sqlite3.IntegrityError as error:
+        if "UNIQUE constraint failed: courses.name" in str(error):
+            raise ServiceError("Já existe um curso com esse nome.", 409) from error
+        raise
+    return repository.find_course(database_path, course_id)
+
+
+def update_course(database_path, course_id, body):
+    is_active = body.get("is_active")
+    if not isinstance(is_active, bool):
+        raise ServiceError("Informe se o curso está ativo.", 400)
+    result = repository.set_course_active(database_path, course_id, is_active)
+    if result == "not_found":
+        raise ServiceError("Curso não encontrado.", 404)
+    if result == "last_active_course":
+        raise ServiceError("Não é possível desativar o último curso ativo.", 409)
+    return repository.find_course(database_path, course_id)
+
+
 def update_school_year(database_path, value, current_year):
     if isinstance(value, bool) or not isinstance(value, int) or not 1900 <= value <= 2100:
         raise ServiceError("Informe um ano letivo válido entre 1900 e 2100.", 400)
@@ -131,10 +160,22 @@ def create_student(database_path, body, school_year):
         raise ServiceError("A matrícula deve conter exatamente 10 números.", 400)
     if grade not in GRADES:
         raise ServiceError("Selecione o 1º, 2º ou 3º ano.", 400)
+    course_id = body.get("course_id")
+    if isinstance(course_id, bool) or not isinstance(course_id, int):
+        raise ServiceError("Selecione um curso válido.", 400)
+    course = repository.find_course(database_path, course_id)
+    if not course or not course["is_active"]:
+        raise ServiceError("O curso selecionado não existe ou está inativo.", 400)
     enrollment = enrollment.strip()
     try:
         repository.add_student(
-            database_path, enrollment, name.strip(), grade, now_iso(), school_year
+            database_path,
+            enrollment,
+            name.strip(),
+            grade,
+            course_id,
+            now_iso(),
+            school_year,
         )
     except sqlite3.IntegrityError as error:
         if "UNIQUE constraint failed: students.enrollment" in str(error):
@@ -179,13 +220,17 @@ def import_students(database_path, filename, content, school_year):
         reader = csv.DictReader(io.StringIO(text, newline=""), dialect=dialect)
         headers = reader.fieldnames or []
         normalized_headers = {_normalized_header(header): header for header in headers if header}
-        required = {"matricula", "nome", "turma"}
+        required = {"matricula", "nome", "turma", "curso"}
         if not required.issubset(normalized_headers):
             raise ServiceError(
-                "O CSV precisa ter cabeçalhos para matrícula, nome e turma.",
+                "O CSV precisa ter cabeçalhos para matrícula, nome, turma e curso.",
                 400,
             )
 
+        courses = repository.list_courses(database_path)
+        courses_by_name = {
+            course["name"].casefold(): course["id"] for course in courses
+        }
         valid_students = []
         invalid_rows = []
         for line_number, row in enumerate(reader, start=2):
@@ -194,7 +239,9 @@ def import_students(database_path, filename, content, school_year):
             enrollment = (row.get(normalized_headers["matricula"]) or "").strip()
             name = (row.get(normalized_headers["nome"]) or "").strip()
             grade_value = (row.get(normalized_headers["turma"]) or "").strip()
+            course_name = (row.get(normalized_headers["curso"]) or "").strip()
             grade = _normalize_grade(grade_value)
+            course_id = courses_by_name.get(course_name.casefold())
 
             if not _is_valid_enrollment(enrollment):
                 invalid_rows.append({"line": line_number, "reason": "matrícula inválida"})
@@ -202,12 +249,15 @@ def import_students(database_path, filename, content, school_year):
                 invalid_rows.append({"line": line_number, "reason": "nome ausente ou maior que 150 caracteres"})
             elif not grade:
                 invalid_rows.append({"line": line_number, "reason": "turma deve ser 1º, 2º ou 3º"})
+            elif course_id is None:
+                invalid_rows.append({"line": line_number, "reason": "curso inválido ou inativo"})
             else:
                 valid_students.append(
                     {
                         "enrollment": enrollment,
                         "name": name,
                         "grade": grade,
+                        "course_id": course_id,
                         "created_at": now_iso(),
                     }
                 )
@@ -231,7 +281,18 @@ def update_student(database_path, enrollment, body, school_year):
         raise ServiceError("Informe o nome do estudante (até 150 caracteres).", 400)
     if grade not in GRADES:
         raise ServiceError("Selecione o 1º, 2º ou 3º ano.", 400)
-    if not repository.update_student(database_path, enrollment, name.strip(), grade, school_year):
+    course_id = body.get("course_id")
+    if isinstance(course_id, bool) or not isinstance(course_id, int):
+        raise ServiceError("Selecione um curso válido.", 400)
+    course = repository.find_course(database_path, course_id)
+    current = repository.find_student(database_path, enrollment, school_year)
+    if not current:
+        raise ServiceError("Estudante não encontrado.", 404)
+    if not course or (not course["is_active"] and current["course_id"] != course_id):
+        raise ServiceError("O curso selecionado não existe ou está inativo.", 400)
+    if not repository.update_student(
+        database_path, enrollment, name.strip(), grade, course_id, school_year
+    ):
         raise ServiceError("Estudante não encontrado.", 404)
     return repository.find_student(database_path, enrollment, school_year)
 

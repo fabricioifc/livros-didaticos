@@ -5,9 +5,11 @@ const state = {
   email: "",
   isAdmin: false,
   users: [],
+  courses: [],
   students: [],
   view: "dashboard",
   grade: "all",
+  course: "all",
   studentStatus: "active",
   currentStudent: null,
   selectedCheckoutBooks: new Set(),
@@ -113,6 +115,10 @@ function showApplication(email, isAdmin = false) {
 }
 
 async function refreshStudents() {
+  const courseData = await api("/api/courses");
+  state.courses = courseData.courses;
+  renderStudentCourseOptions();
+  renderCourseFilters();
   const data = await api("/api/students");
   state.schoolYear = data.school_year;
   $("#school-year-label").textContent = String(data.school_year);
@@ -146,9 +152,11 @@ function rowMarkup(student) {
   const initials = student.name.trim().split(/\s+/).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("");
   const checkoutClass = progress.label === "Completa" ? "status-pill status-pill--complete" : progress.label === "Não iniciado" ? "status-pill status-pill--muted" : "status-pill status-pill--progress";
   const returnClass = progress.returnLabel === "Completa" ? "status-pill status-pill--complete" : progress.returnLabel === "—" ? "status-pill status-pill--muted" : "status-pill status-pill--progress";
+  const courseColor = courseColorClass(student.course_id);
   return `<tr>
     <td><button class="student-name-button" data-action="detail" data-enrollment="${escapeHtml(student.enrollment)}"><span class="student-avatar">${escapeHtml(initials)}</span><span class="student-name">${escapeHtml(student.name)}</span></button></td>
     <td class="mono-cell">${escapeHtml(student.enrollment)}</td>
+    <td><span class="course-pill ${courseColor}">${escapeHtml(student.course_name)}</span></td>
     <td>${student.status === "completed"
     ? '<span class="archived-pill">Arquivado</span>'
     : `<span class="grade-pill">${escapeHtml(student.grade)} ano</span>`}</td>
@@ -162,8 +170,9 @@ function renderTable(table, empty, count, query = "", status = "active") {
   const filtered = state.students.filter((student) => {
     const matchesStatus = student.status === status;
     const matchesGrade = status === "completed" || state.grade === "all" || student.grade === state.grade;
-    const text = `${student.name} ${student.enrollment}`.toLowerCase();
-    return matchesStatus && matchesGrade && text.includes(query.toLowerCase().trim());
+    const matchesCourse = state.course === "all" || String(student.course_id) === state.course;
+    const text = `${student.name} ${student.enrollment} ${student.course_name}`.toLowerCase();
+    return matchesStatus && matchesGrade && matchesCourse && text.includes(query.toLowerCase().trim());
   });
   table.innerHTML = filtered.map(rowMarkup).join("");
   empty.hidden = filtered.length > 0;
@@ -199,11 +208,87 @@ function setView(view) {
   $("#breadcrumb-current").textContent = {
     dashboard: "Visão geral",
     students: "Estudantes",
-    users: "Usuários",
+    users: "Administração",
   }[view] || "Visão geral";
   $$(".nav-item").forEach((button) => button.classList.toggle("is-active", button.dataset.view === view));
   $("#sidebar").classList.remove("is-open");
-  if (view === "users") loadManagedUsers();
+  if (view === "users") {
+    loadManagedUsers();
+    loadManagedCourses();
+  }
+}
+
+function renderStudentCourseOptions(selectedId = "") {
+  const select = $("#student-course");
+  const selected = String(selectedId || "");
+  select.innerHTML = '<option value="" disabled>Selecione o curso</option>' + state.courses
+    .map((course) => `<option value="${course.id}" ${!course.is_active && String(course.id) !== selected ? "disabled" : ""}>${escapeHtml(course.name)}${course.is_active ? "" : " (inativo)"}</option>`)
+    .join("");
+  select.value = selected;
+}
+
+function courseColorClass(courseId) {
+  const colorIndex = Math.abs(Number(courseId) - 1) % 6;
+  return `course-color-${colorIndex}`;
+}
+
+function renderCourseFilters() {
+  const buttons = [
+    '<button class="filter-chip is-selected" data-course="all" type="button">Todos os cursos</button>',
+    ...state.courses.map((course) =>
+      `<button class="filter-chip ${courseColorClass(course.id)} ${String(course.id) === state.course ? "is-selected" : ""}" data-course="${course.id}" type="button">${escapeHtml(course.name)}</button>`
+    ),
+  ].join("");
+  $$(".course-filter").forEach((filter) => {
+    filter.innerHTML = buttons;
+    $$("[data-course]", filter).forEach((button) => {
+      button.classList.toggle("is-selected", button.dataset.course === state.course);
+    });
+  });
+}
+
+function renderManagedCourses() {
+  $("#courses-table").innerHTML = state.courses.map((course) => `
+    <tr data-course-id="${course.id}">
+      <td>${escapeHtml(course.name)}</td>
+      <td>${course.student_count}</td>
+      <td>${course.is_active ? "Ativo" : "Inativo"}</td>
+      <td><button class="button button--secondary course-toggle-button" data-action="toggle-course" type="button">${course.is_active ? "Desativar" : "Reativar"}</button></td>
+    </tr>`).join("");
+  $("#courses-empty").hidden = state.courses.length > 0;
+  $("#courses-table").closest(".table-scroll").hidden = state.courses.length === 0;
+}
+
+async function loadManagedCourses() {
+  try {
+    const result = await api("/api/courses");
+    state.courses = result.courses;
+    renderCourseFilters();
+    renderManagedCourses();
+    renderStudentCourseOptions($("#student-course").value);
+  } catch (error) {
+    notify(error.message, "error");
+  }
+}
+
+async function toggleCourse(row) {
+  const course = state.courses.find((item) => item.id === Number(row.dataset.courseId));
+  const button = $(".course-toggle-button", row);
+  if (!course) return;
+  button.disabled = true;
+  try {
+    await api(`/api/courses/${course.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ is_active: !course.is_active }),
+    });
+    await loadManagedCourses();
+    renderStudentCourseOptions($("#student-course").value);
+    notify(course.is_active ? "Curso desativado." : "Curso reativado.");
+  } catch (error) {
+    notify(error.message, "error");
+  } finally {
+    button.disabled = false;
+  }
 }
 
 function renderManagedUsers() {
@@ -287,6 +372,7 @@ function openNewStudent() {
   state.editingStudent = null;
   elements.studentForm.reset();
   $("#student-enrollment").readOnly = false;
+  renderStudentCourseOptions();
   $("#student-dialog-title").textContent = "Adicionar estudante";
   $("#student-submit").innerHTML = "Salvar estudante <span>→</span>";
   elements.studentDialog.showModal();
@@ -300,6 +386,7 @@ function editCurrentStudent() {
   $("#student-enrollment").value = student.enrollment;
   $("#student-enrollment").readOnly = true;
   $("#student-grade").value = student.grade;
+  renderStudentCourseOptions(student.course_id);
   $("#student-dialog-title").textContent = "Editar estudante";
   $("#student-submit").innerHTML = "Salvar alterações <span>→</span>";
   elements.studentDialog.showModal();
@@ -318,8 +405,8 @@ function renderStudentDetail() {
   $("#export-student-terms-button").hidden = student.years.length < 2;
   $("#detail-name").textContent = student.name;
   $("#detail-meta").textContent = student.status === "completed"
-    ? `Matrícula ${student.enrollment} · Arquivado`
-    : `Matrícula ${student.enrollment} · ${student.grade} ano`;
+    ? `Matrícula ${student.enrollment} · ${student.course_name} · Arquivado`
+    : `Matrícula ${student.enrollment} · ${student.course_name} · ${student.grade} ano`;
   $("#detail-progress-label").textContent = `${counts.issued} de ${counts.total} títulos entregues`;
   $("#detail-progress-bar").style.width = `${counts.total ? Math.round((counts.issued / counts.total) * 100) : 0}%`;
   const canCheckout = student.school_year === state.schoolYear && student.status === "active";
@@ -558,7 +645,7 @@ function buildPrintTermMarkup(student, date) {
   return `<article class="print-term">
     <header class="print-header"><div><strong>INSTITUTO FEDERAL CATARINENSE</strong><span>Campus Fraiburgo</span></div><span>TERMO DE COMPROMISSO · ${student.school_year}</span></header>
     <h1>Termo de compromisso com os livros didáticos</h1>
-    <p>Eu, <strong>${escapeHtml(student.name)}</strong>, matrícula <strong>${escapeHtml(student.enrollment)}</strong>, estudante do <strong>${escapeHtml(student.grade)} ano</strong> do curso Técnico em Informática Integrado ao Ensino Médio, declaro que recebi os livros relacionados neste termo ao longo do curso e assumo a responsabilidade de devolvê-los em perfeito estado de conservação ao final do Ensino Médio, em caso de transferência para outra instituição ou de desistência do curso.</p>
+    <p>Eu, <strong>${escapeHtml(student.name)}</strong>, matrícula <strong>${escapeHtml(student.enrollment)}</strong>, estudante da turma do <strong>${escapeHtml(student.grade)} ano</strong> do curso <strong>${escapeHtml(student.course_name)}</strong>, declaro que recebi os livros relacionados neste termo ao longo do curso e assumo a responsabilidade de devolvê-los em perfeito estado de conservação ao final do Ensino Médio, em caso de transferência para outra instituição ou de desistência do curso.</p>
     <h2>Regras de utilização dos livros didáticos (PNLD)</h2><ol>${rules.map((rule) => `<li>${escapeHtml(rule)}</li>`).join("")}</ol>
     <table class="print-table"><thead><tr><th>Título do volume</th><th>Assinatura do estudante<br>no empréstimo</th><th>Assinatura do servidor<br>na devolução</th></tr></thead><tbody>${rows}</tbody></table>
     <footer class="print-footer"><span>Fraiburgo, ${date}</span><span>Rua Cruz e Souza, nº 100 · Centro · Fraiburgo/SC · (49) 3202-8800</span></footer>
@@ -696,7 +783,12 @@ elements.studentForm.addEventListener("submit", async (event) => {
     const enrollment = String(form.get("enrollment"));
     await api(editing ? `/api/students/${encodeURIComponent(enrollment)}` : "/api/students", {
       method: editing ? "PUT" : "POST",
-      body: JSON.stringify({ name: form.get("name"), enrollment: form.get("enrollment"), grade: form.get("grade") }),
+      body: JSON.stringify({
+        name: form.get("name"),
+        enrollment: form.get("enrollment"),
+        grade: form.get("grade"),
+        course_id: Number(form.get("course_id")),
+      }),
     });
     elements.studentDialog.close();
     elements.studentForm.reset();
@@ -720,6 +812,25 @@ elements.studentDialog.addEventListener("close", () => {
 });
 
 $("#edit-student-button").addEventListener("click", editCurrentStudent);
+$("#course-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = $("#course-submit");
+  button.disabled = true;
+  try {
+    await api("/api/courses", {
+      method: "POST",
+      body: JSON.stringify({ name: $("#course-name").value }),
+    });
+    form.reset();
+    await loadManagedCourses();
+    notify("Curso cadastrado com sucesso.");
+  } catch (error) {
+    notify(error.message, "error");
+  } finally {
+    button.disabled = false;
+  }
+});
 $("#logout-button").addEventListener("click", async () => {
   try {
     await api("/api/auth/logout", { method: "POST" });
@@ -741,6 +852,13 @@ $$(".grade-filter[data-grade-filter]").forEach((filter) => filter.addEventListen
   $$(".grade-filter[data-grade-filter]").forEach((group) => $$(".filter-chip", group).forEach((chip) => chip.classList.toggle("is-selected", chip.dataset.grade === state.grade)));
   renderStudents();
 }));
+$$(".course-filter").forEach((filter) => filter.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-course]");
+  if (!button) return;
+  state.course = button.dataset.course;
+  renderCourseFilters();
+  renderStudents();
+}));
 $("#student-status-filter").addEventListener("click", (event) => {
   const button = event.target.closest("[data-student-status]");
   if (!button) return;
@@ -760,6 +878,7 @@ document.addEventListener("click", (event) => {
   if (target.dataset.action === "sign-return") openSignature(target.dataset.book, "return");
   if (target.dataset.action === "book-history") openBookHistory(target.dataset.book);
   if (target.dataset.action === "save-user") saveManagedUser(target.closest("tr"));
+  if (target.dataset.action === "toggle-course") toggleCourse(target.closest("tr"));
 });
 
 $("#enrollment-confirmation-form").addEventListener("submit", (event) => {

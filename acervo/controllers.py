@@ -169,6 +169,46 @@ def update_managed_user(user_id):
     return jsonify(user)
 
 
+@main.get("/api/courses")
+@login_required
+def list_courses():
+    courses = services.get_courses(
+        current_app.config["DATABASE_PATH"],
+        include_inactive=True,
+    )
+    return jsonify({"courses": courses})
+
+
+@main.post("/api/courses")
+@admin_required
+def create_course():
+    error = csrf_error()
+    if error:
+        return error
+    try:
+        course = services.create_course(
+            current_app.config["DATABASE_PATH"], request_body()
+        )
+    except services.ServiceError as error:
+        return handle_service_error(error)
+    return jsonify(course), 201
+
+
+@main.patch("/api/courses/<int:course_id>")
+@admin_required
+def update_course(course_id):
+    error = csrf_error()
+    if error:
+        return error
+    try:
+        course = services.update_course(
+            current_app.config["DATABASE_PATH"], course_id, request_body()
+        )
+    except services.ServiceError as error:
+        return handle_service_error(error)
+    return jsonify(course)
+
+
 @main.get("/api/students")
 @login_required
 def list_students():
@@ -254,7 +294,7 @@ def import_students():
 @main.get("/api/students/import-template")
 @login_required
 def download_import_template():
-    template = "\ufeffmatricula;nome;turma\r\n;;\r\n;;\r\n"
+    template = "\ufeffmatricula;nome;turma;curso\r\n;;;\r\n;;;\r\n"
     return Response(
         template,
         mimetype="text/csv",
