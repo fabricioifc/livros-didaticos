@@ -1155,7 +1155,7 @@ class LibraryAppTest(unittest.TestCase):
         page = self.client.get("/")
         self.assertEqual(page.status_code, 200)
         self.assertIn(b"Importar CSV", page.data)
-        self.assertIn(b"Exportar backup anual", page.data)
+        self.assertIn("Exportar termos do ano".encode(), page.data)
         self.assertIn(b"Aviso de Privacidade", page.data)
         self.assertRegex(page.data, rb"/static/styles\.css\?v=\d+")
         self.assertRegex(page.data, rb"/static/js/main\.js\?v=\d+")
@@ -1336,6 +1336,71 @@ class LibraryAppTest(unittest.TestCase):
         self.assertEqual(login.status_code, 200)
         self.assertIn("Expires=", login.headers["Set-Cookie"])
         self.assertEqual(self.client.get("/api/students").status_code, 200)
+
+    @staticmethod
+    def real_png_signature():
+        import struct
+        import zlib
+
+        def chunk(kind, data):
+            body = kind + data
+            return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body))
+
+        png = (
+            bytes([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+            + chunk(b"IHDR", struct.pack(">IIBBBBB", 2, 1, 8, 2, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(bytes([0, 0x23, 0x4B, 0x3A, 0xFF, 0xFF, 0xFF])))
+            + chunk(b"IEND", b"")
+        )
+        return "data:image/png;base64," + base64.b64encode(png).decode()
+
+    def test_year_terms_export_zips_one_pdf_per_student_grouped_by_course(self):
+        import zipfile
+
+        self.assertEqual(self.client.get("/api/school-years/2026/terms.zip").status_code, 401)
+        self.login()
+        self.assertEqual(self.client.get("/api/school-years/2026/terms.zip").status_code, 404)
+        students = [
+            ("2026000001", "Ana Júlia", self.informatics_course_id),
+            ("2026000002", "Bruno/Teste", self.administration_course_id),
+            ("2026000003", "Caio", self.informatics_course_id),
+        ]
+        for enrollment, name, course_id in students:
+            created = self.client.post(
+                "/api/students",
+                json={"name": name, "enrollment": enrollment, "grade": "1º", "course_id": course_id},
+                headers={"X-CSRF-Token": self.csrf()},
+            )
+            self.assertEqual(created.status_code, 201)
+        checkout = self.client.post(
+            "/api/students/2026000001/books/checkout",
+            json={
+                "book_ids": ["portugues-2026-1"],
+                "signature": self.real_png_signature(),
+                "enrollment_confirmation": "2026000001",
+            },
+            headers={"X-CSRF-Token": self.csrf()},
+        )
+        self.assertEqual(checkout.status_code, 200)
+
+        response = self.client.get("/api/school-years/2026/terms.zip")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.mimetype, "application/zip")
+        self.assertIn('filename="termos-2026.zip"', response.headers["Content-Disposition"])
+        with zipfile.ZipFile(BytesIO(response.data)) as archive:
+            names = sorted(archive.namelist())
+            self.assertEqual(
+                names,
+                [
+                    "ADM - Tecnico em Administracao Integrado ao Ensino Medio/2026000002 - BrunoTeste.pdf",
+                    "INFO - Tecnico em Informatica Integrado ao Ensino Medio/2026000001 - Ana Julia.pdf",
+                    "INFO - Tecnico em Informatica Integrado ao Ensino Medio/2026000003 - Caio.pdf",
+                ],
+            )
+            for name in names:
+                self.assertTrue(archive.read(name).startswith(b"%PDF-"))
+
+        self.assertEqual(self.client.get("/api/school-years/2027/terms.zip").status_code, 400)
 
     def test_app_requires_secret_key_outside_local_runs(self):
         database_path = str(Path(self.temp_dir.name) / "no-secret.db")

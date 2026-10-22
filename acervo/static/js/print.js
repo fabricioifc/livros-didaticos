@@ -55,20 +55,23 @@ async function exportAnnualBackup() {
   }
 }
 
-async function printAnnualBackup(year) {
+async function downloadYearTerms(year) {
   const button = $("#annual-backup-submit");
   button.disabled = true;
   try {
-    const { students } = await api(`/api/students?year=${encodeURIComponent(year)}`);
-    if (!students.length) {
-      notify(`Não há termos registrados para ${year}.`, "error");
-      return;
+    const response = await fetch(`/api/school-years/${encodeURIComponent(year)}/terms.zip`);
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      throw new Error(payload.error || "Não foi possível gerar o arquivo.");
     }
-    const terms = await Promise.all(students.map((student) =>
-      api(`/api/students/${encodeURIComponent(student.enrollment)}?year=${encodeURIComponent(year)}`)
-    ));
-    printTerms(terms, `backup-termos-${year}`);
+    const url = URL.createObjectURL(await response.blob());
+    const link = Object.assign(document.createElement("a"), { href: url, download: `termos-${year}.zip` });
+    document.body.append(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
     $("#annual-backup-dialog").close();
+    notify(`Termos de ${year} exportados.`);
   } catch (error) {
     notify(error.message, "error");
   } finally {
@@ -97,7 +100,7 @@ export function bindPrint() {
   $("#export-annual-backup-button").addEventListener("click", exportAnnualBackup);
   $("#annual-backup-form").addEventListener("submit", (event) => {
     event.preventDefault();
-    printAnnualBackup(Number($("#backup-school-year").value));
+    downloadYearTerms(Number($("#backup-school-year").value));
   });
   $("#export-student-terms-button").addEventListener("click", exportStudentTerms);
 }

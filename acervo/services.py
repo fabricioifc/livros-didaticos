@@ -4,10 +4,11 @@ import re
 import sqlite3
 import time
 import unicodedata
+import zipfile
 
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from . import repository
+from . import repository, term_pdf
 from .models import GRADES, is_ifc_email, normalize_email, now_iso, validate_signature
 
 
@@ -115,6 +116,32 @@ def get_school_years(database_path, current_year):
 
 def get_student(database_path, enrollment, school_year=None):
     return repository.find_student(database_path, enrollment, school_year)
+
+
+def _safe_filename(value):
+    """Nome de arquivo portátil: sem acentos nem caracteres reservados."""
+    ascii_text = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode()
+    cleaned = re.sub(r"[^A-Za-z0-9 ._-]+", "", ascii_text)
+    return re.sub(r"\s+", " ", cleaned).strip(" .") or "sem-nome"
+
+
+def export_year_terms(database_path, school_year, current_year):
+    """ZIP com um PDF por estudante, em uma pasta por curso."""
+    if not isinstance(school_year, int) or school_year > current_year or school_year < 1900:
+        raise ServiceError("Ano letivo inválido.", 400)
+    students = repository.list_students(database_path, "", school_year, exact_year=True)
+    if not students:
+        raise ServiceError(f"Não há termos registrados para {school_year}.", 404)
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as zipped:
+        for summary in students:
+            student = repository.find_student(database_path, summary["enrollment"], school_year)
+            folder = _safe_filename(
+                f"{student['course_abbreviation'] or ''} - {student['course_name']}".strip(" -")
+            )
+            filename = _safe_filename(f"{student['enrollment']} - {student['name']}")
+            zipped.writestr(f"{folder}/{filename}.pdf", term_pdf.build_term_pdf(student))
+    return archive.getvalue()
 
 
 def get_courses(database_path, include_inactive=False):

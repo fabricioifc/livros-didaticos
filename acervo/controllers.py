@@ -263,6 +263,25 @@ def list_school_years():
     return jsonify({"school_years": years})
 
 
+@main.get("/api/school-years/<int:school_year>/terms.zip")
+@login_required
+def export_year_terms(school_year):
+    try:
+        archive = services.export_year_terms(
+            current_app.config["DATABASE_PATH"], school_year, current_app.config["SCHOOL_YEAR"]
+        )
+    except services.ServiceError as error:
+        return handle_service_error(error)
+    return Response(
+        archive,
+        mimetype="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="termos-{school_year}.zip"',
+            "Cache-Control": "no-store",
+        },
+    )
+
+
 @main.post("/api/settings/school-year")
 @admin_required
 def update_school_year():
