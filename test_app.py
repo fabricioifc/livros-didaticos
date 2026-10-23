@@ -1278,6 +1278,7 @@ class LibraryAppTest(unittest.TestCase):
         self.assertIn(b"Importar CSV", page.data)
         self.assertIn("Exportar termos do ano".encode(), page.data)
         self.assertIn(b"Aviso de Privacidade", page.data)
+        self.assertRegex(page.data, rb"/static/favicon\.svg\?v=\d+")
         self.assertRegex(page.data, rb"/static/styles\.css\?v=\d+")
         self.assertRegex(page.data, rb"/static/js/main\.js\?v=\d+")
         self.assertRegex(page.data, rb'"/static/js/dashboard\.js": "/static/js/dashboard\.js\?v=\d+"')
@@ -1313,6 +1314,7 @@ class LibraryAppTest(unittest.TestCase):
         self.assertNotIn(b"QR Code", page.data)
         privacy = self.client.get("/privacidade")
         self.assertEqual(privacy.status_code, 200)
+        self.assertRegex(privacy.data, rb"/static/favicon\.svg\?v=\d+")
         self.assertRegex(privacy.data, rb"/static/styles\.css\?v=\d+")
         self.assertIn("15 a 17 anos".encode(), privacy.data)
         self.assertIn("controle interno e arquivo".encode(), privacy.data)
@@ -1324,6 +1326,9 @@ class LibraryAppTest(unittest.TestCase):
         )
         with self.client.get("/static/styles.css") as styles:
             self.assertEqual(styles.status_code, 200)
+        with self.client.get("/static/favicon.svg") as favicon:
+            self.assertEqual(favicon.status_code, 200)
+            self.assertIn(b"<svg", favicon.data)
         with self.client.get("/static/js/main.js") as script:
             self.assertEqual(script.status_code, 200)
         with self.client.get("/static/js/dashboard.js") as script:
