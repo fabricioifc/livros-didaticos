@@ -346,6 +346,8 @@ def update_student(database_path, enrollment, body, school_year):
     current = repository.find_student(database_path, enrollment, school_year)
     if not current:
         raise ServiceError("Estudante não encontrado.", 404)
+    if current["is_archived"]:
+        raise ServiceError("Reative o vínculo antes de editar o cadastro.", 409)
     if not course or (not course["is_active"] and current["course_id"] != course_id):
         raise ServiceError("O curso selecionado não existe ou está inativo.", 400)
     if not repository.update_student(
@@ -353,6 +355,52 @@ def update_student(database_path, enrollment, body, school_year):
     ):
         raise ServiceError("Estudante não encontrado.", 404)
     return repository.find_student(database_path, enrollment, school_year)
+
+
+def archive_student(database_path, enrollment, body, actor_email):
+    reason = body.get("reason")
+    if not isinstance(reason, str) or not reason.strip() or len(reason.strip()) > 500:
+        raise ServiceError("Informe o motivo do desligamento (até 500 caracteres).", 400)
+    result = repository.archive_student(
+        database_path, enrollment, actor_email, reason.strip(), now_iso()
+    )
+    errors = {
+        "not_found": ("Estudante não encontrado.", 404),
+        "already_archived": ("Este estudante já está desvinculado.", 409),
+    }
+    if result:
+        message, status = errors[result]
+        raise ServiceError(message, status)
+    return repository.find_student(database_path, enrollment)
+
+
+def reactivate_student(database_path, enrollment, actor_email, school_year):
+    result = repository.reactivate_student(
+        database_path, enrollment, school_year, actor_email, now_iso()
+    )
+    errors = {
+        "not_found": ("Estudante não encontrado.", 404),
+        "not_archived": ("Este estudante não está desvinculado.", 409),
+    }
+    if result:
+        message, status = errors[result]
+        raise ServiceError(message, status)
+    return repository.find_student(database_path, enrollment, school_year)
+
+
+def delete_student(database_path, enrollment):
+    result = repository.delete_student_without_history(database_path, enrollment)
+    errors = {
+        "not_found": ("Estudante não encontrado.", 404),
+        "has_history": (
+            "Este cadastro possui empréstimos, devoluções, assinaturas ou histórico. "
+            "Desvincule o estudante para preservar os registros.",
+            409,
+        ),
+    }
+    if result:
+        message, status = errors[result]
+        raise ServiceError(message, status)
 
 
 def get_book_signature_history(database_path, enrollment, book_id):
@@ -410,7 +458,9 @@ def sign_book(
     if action not in {"checkout", "return"}:
         raise ServiceError("Operação inválida.", 400)
     student = repository.find_student(database_path, enrollment, school_year)
-    if action == "checkout" and (not student or student["status"] != "active"):
+    if action == "checkout" and (
+        not student or student["status"] != "active" or student["is_archived"]
+    ):
         raise ServiceError("Não é possível registrar uma entrega fora do ciclo letivo ativo.", 409)
     if not student and action == "return":
         student = repository.find_student(database_path, enrollment)
@@ -467,7 +517,7 @@ def sign_books(
     if len(set(book_ids)) != len(book_ids):
         raise ServiceError("A seleção contém livros repetidos.", 400)
     student = repository.find_student(database_path, enrollment, school_year)
-    if not student or student["status"] != "active":
+    if not student or student["status"] != "active" or student["is_archived"]:
         raise ServiceError("Não é possível registrar uma entrega fora do ciclo letivo ativo.", 409)
     if (
         not isinstance(enrollment_confirmation, str)

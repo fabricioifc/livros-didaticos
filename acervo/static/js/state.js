@@ -9,6 +9,7 @@ export const state = {
   grade: "all",
   course: "all",
   studentStatus: "active",
+  studentsPage: 1,
   currentStudent: null,
   selectedCheckoutBooks: new Set(),
   editingStudent: null,

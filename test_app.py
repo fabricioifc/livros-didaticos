@@ -1151,6 +1151,127 @@ class LibraryAppTest(unittest.TestCase):
         response = self.client.get("/api/students")
         self.assertEqual(response.status_code, 401)
 
+    def test_student_archive_reactivation_and_safe_deletion(self):
+        self.login()
+        student_data = {
+            "name": "Estudante de Teste",
+            "enrollment": "2026000091",
+            "grade": "1º",
+            "course_id": self.informatics_course_id,
+        }
+        created = self.client.post(
+            "/api/students",
+            json=student_data,
+            headers={"X-CSRF-Token": self.csrf()},
+        )
+        self.assertEqual(created.status_code, 201)
+
+        missing_reason = self.client.post(
+            f"/api/students/{student_data['enrollment']}/archive",
+            json={"reason": "  "},
+            headers={"X-CSRF-Token": self.csrf()},
+        )
+        self.assertEqual(missing_reason.status_code, 400)
+
+        archived = self.client.post(
+            f"/api/students/{student_data['enrollment']}/archive",
+            json={"reason": "Transferência para outra instituição"},
+            headers={"X-CSRF-Token": self.csrf()},
+        )
+        self.assertEqual(archived.status_code, 200)
+        self.assertTrue(archived.get_json()["is_archived"])
+        self.assertEqual(
+            archived.get_json()["archive_reason"],
+            "Transferência para outra instituição",
+        )
+        self.assertEqual(archived.get_json()["archived_by"], "servidor@ifc.edu.br")
+        archived_list = self.client.get("/api/students").get_json()["students"]
+        self.assertTrue(next(row for row in archived_list if row["enrollment"] == student_data["enrollment"])["is_archived"])
+
+        reactivated = self.client.post(
+            f"/api/students/{student_data['enrollment']}/reactivate",
+            headers={"X-CSRF-Token": self.csrf()},
+        )
+        self.assertEqual(reactivated.status_code, 200)
+        self.assertFalse(reactivated.get_json()["is_archived"])
+        self.assertEqual(reactivated.get_json()["school_year"], 2026)
+        with sqlite3.connect(self.app.config["DATABASE_PATH"]) as database:
+            events = database.execute(
+                """SELECT action, actor_email, reason
+                   FROM student_status_history
+                   WHERE enrollment = ? ORDER BY id""",
+                (student_data["enrollment"],),
+            ).fetchall()
+        self.assertEqual(
+            events,
+            [
+                ("archive", "servidor@ifc.edu.br", "Transferência para outra instituição"),
+                ("reactivate", "servidor@ifc.edu.br", None),
+            ],
+        )
+
+        denied_delete = self.client.delete(
+            f"/api/students/{student_data['enrollment']}",
+            headers={"X-CSRF-Token": self.csrf()},
+        )
+        self.assertEqual(denied_delete.status_code, 403)
+
+        create_user(
+            self.app.config["DATABASE_PATH"],
+            "fabricio.bizotto@ifc.edu.br",
+            "senha-admin-segura",
+        )
+        admin = self.app.test_client()
+        admin_csrf = admin.get("/api/auth/session").get_json()["csrf_token"]
+        logged_in = admin.post(
+            "/api/auth/login",
+            json={
+                "email": "fabricio.bizotto@ifc.edu.br",
+                "password": "senha-admin-segura",
+            },
+            headers={"X-CSRF-Token": admin_csrf},
+        )
+        self.assertEqual(logged_in.status_code, 200)
+        admin_csrf = logged_in.get_json()["csrf_token"]
+        deleted = admin.delete(
+            f"/api/students/{student_data['enrollment']}",
+            headers={"X-CSRF-Token": admin_csrf},
+        )
+        self.assertEqual(deleted.status_code, 200)
+
+        student_data["enrollment"] = "2026000092"
+        student_data["name"] = "Estudante com histórico"
+        created = admin.post(
+            "/api/students",
+            json=student_data,
+            headers={"X-CSRF-Token": admin_csrf},
+        )
+        self.assertEqual(created.status_code, 201)
+        detail = repository.find_student(
+            self.app.config["DATABASE_PATH"], student_data["enrollment"]
+        )
+        signature_result = repository.record_signature(
+            self.app.config["DATABASE_PATH"],
+            student_data["enrollment"],
+            detail["books"][0]["id"],
+            "checkout",
+            "assinatura-de-teste",
+            "2026-01-10T12:00:00+00:00",
+            "fabricio.bizotto@ifc.edu.br",
+            2026,
+        )
+        self.assertIsNone(signature_result)
+        blocked_delete = admin.delete(
+            f"/api/students/{student_data['enrollment']}",
+            headers={"X-CSRF-Token": admin_csrf},
+        )
+        self.assertEqual(blocked_delete.status_code, 409)
+        self.assertIsNotNone(
+            repository.find_student(
+                self.app.config["DATABASE_PATH"], student_data["enrollment"]
+            )
+        )
+
     def test_mvc_view_and_static_assets_are_served_by_flask(self):
         page = self.client.get("/")
         self.assertEqual(page.status_code, 200)
@@ -1159,10 +1280,15 @@ class LibraryAppTest(unittest.TestCase):
         self.assertIn(b"Aviso de Privacidade", page.data)
         self.assertRegex(page.data, rb"/static/styles\.css\?v=\d+")
         self.assertRegex(page.data, rb"/static/js/main\.js\?v=\d+")
+        self.assertRegex(page.data, rb'"/static/js/dashboard\.js": "/static/js/dashboard\.js\?v=\d+"')
         self.assertRegex(page.data, rb'"/static/js/api\.js": "/static/js/api\.js\?v=\d+"')
         self.assertIn(b"Livros selecionados", page.data)
         self.assertIn(b"signature-book", page.data)
         self.assertIn(b'data-student-status="completed"', page.data)
+        self.assertIn(b'data-student-status="archived"', page.data)
+        self.assertIn(b'id="student-archive-form"', page.data)
+        self.assertIn(b'id="reactivate-student-button"', page.data)
+        self.assertIn(b'id="delete-student-button"', page.data)
         self.assertIn(b'id="annual-backup-form"', page.data)
         self.assertIn(b'id="export-student-terms-button"', page.data)
         self.assertNotIn(b"Gerar acesso do aluno", page.data)
@@ -1176,8 +1302,14 @@ class LibraryAppTest(unittest.TestCase):
         self.assertIn(b'id="admin-tab-users"', page.data)
         self.assertIn(b'id="menu-button"', page.data)
         self.assertIn(b'id="student-course"', page.data)
-        self.assertIn(b'id="dashboard-course-filter"', page.data)
+        self.assertNotIn(b'id="dashboard-course-filter"', page.data)
         self.assertIn(b'id="students-course-filter"', page.data)
+        self.assertIn(b'id="students-pagination"', page.data)
+        self.assertIn(b'http://fabrica.videira.ifc.edu.br/', page.data)
+        self.assertNotIn(b"Atualizado em tempo real", page.data)
+        self.assertIn(b'id="dashboard-course-chart"', page.data)
+        self.assertIn(b'id="dashboard-book-chart"', page.data)
+        self.assertIn(b'id="dashboard-pending-table"', page.data)
         self.assertNotIn(b"QR Code", page.data)
         privacy = self.client.get("/privacidade")
         self.assertEqual(privacy.status_code, 200)
@@ -1193,6 +1325,8 @@ class LibraryAppTest(unittest.TestCase):
         with self.client.get("/static/styles.css") as styles:
             self.assertEqual(styles.status_code, 200)
         with self.client.get("/static/js/main.js") as script:
+            self.assertEqual(script.status_code, 200)
+        with self.client.get("/static/js/dashboard.js") as script:
             self.assertEqual(script.status_code, 200)
         self.assertEqual(
             self.client.get("/static/vendor/qr-scanner/qr-scanner.umd.min.js").status_code,

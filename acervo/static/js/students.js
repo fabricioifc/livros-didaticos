@@ -4,6 +4,7 @@ import { api, notify } from "./api.js";
 import { bookCounts, escapeHtml } from "./utils.js";
 import { courseColorClass, renderCourseFilters, renderStudentCourseOptions } from "./courses.js";
 import { renderStudentDetail } from "./student-detail.js";
+import { renderDashboard } from "./dashboard.js";
 
 export async function refreshStudents() {
   const courseData = await api("/api/courses");
@@ -48,8 +49,10 @@ function rowMarkup(student) {
     <td><button class="student-name-button" data-action="detail" data-enrollment="${escapeHtml(student.enrollment)}"><span class="student-avatar">${escapeHtml(initials)}</span><span class="student-name">${escapeHtml(student.name)}</span></button></td>
     <td class="mono-cell">${escapeHtml(student.enrollment)}</td>
     <td><span class="course-pill ${courseColor}" title="${escapeHtml(student.course_name)}">${escapeHtml(student.course_abbreviation)}</span></td>
-    <td>${student.status === "completed"
-    ? '<span class="archived-pill">Arquivado</span>'
+    <td>${student.is_archived
+    ? '<span class="archived-pill">Desvinculado</span>'
+    : student.status === "completed"
+      ? '<span class="archived-pill">Ciclo concluído</span>'
     : `<span class="grade-pill">${escapeHtml(student.grade)} ano</span>`}</td>
     <td><span class="${checkoutClass}"><i></i>${escapeHtml(progress.label)}</span></td>
     <td><span class="${returnClass}"><i></i>${escapeHtml(progress.returnLabel)}</span></td>
@@ -59,22 +62,33 @@ function rowMarkup(student) {
 
 function renderTable(table, empty, count, query = "", status = "active") {
   const filtered = state.students.filter((student) => {
-    const matchesStatus = student.status === status;
-    const matchesGrade = status === "completed" || state.grade === "all" || student.grade === state.grade;
+    const matchesStatus = status === "archived"
+      ? student.is_archived
+      : !student.is_archived && student.status === status;
+    const matchesGrade = status !== "active" || state.grade === "all" || student.grade === state.grade;
     const matchesCourse = state.course === "all" || String(student.course_id) === state.course;
     const text = `${student.name} ${student.enrollment} ${student.course_name}`.toLowerCase();
     return matchesStatus && matchesGrade && matchesCourse && text.includes(query.toLowerCase().trim());
   });
-  table.innerHTML = filtered.map(rowMarkup).join("");
+  const pageSize = 10;
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  state.studentsPage = Math.min(state.studentsPage, pageCount);
+  const firstItem = (state.studentsPage - 1) * pageSize;
+  table.innerHTML = filtered.slice(firstItem, firstItem + pageSize).map(rowMarkup).join("");
   empty.hidden = filtered.length > 0;
   table.closest(".table-scroll").hidden = filtered.length === 0;
-  count.textContent = `${filtered.length} ${filtered.length === 1 ? "estudante" : "estudantes"}`;
+  count.textContent = filtered.length === 0
+    ? "0 estudantes"
+    : `Mostrando ${firstItem + 1}–${Math.min(firstItem + pageSize, filtered.length)} de ${filtered.length} estudantes`;
+  $("#students-page-label").textContent = `Página ${state.studentsPage} de ${pageCount}`;
+  $("#students-previous").disabled = state.studentsPage === 1;
+  $("#students-next").disabled = state.studentsPage === pageCount;
+  $("#students-pagination").hidden = filtered.length === 0;
   return filtered;
 }
 
 export function renderStudents() {
-  const activeStudents = state.students.filter((student) => student.status === "active");
-  const dashboard = renderTable($("#dashboard-students"), $("#dashboard-empty"), $("#dashboard-count"), $("#dashboard-search").value, "active");
+  const activeStudents = state.students.filter((student) => student.status === "active" && !student.is_archived);
   const list = renderTable($("#students-table"), $("#students-empty"), $("#students-count"), $("#students-search").value, state.studentStatus);
   const issued = activeStudents.reduce((total, student) => total + bookCounts(student).issued, 0);
   const awaiting = activeStudents.reduce((total, student) => total + bookCounts(student).awaiting, 0);
@@ -86,8 +100,8 @@ export function renderStudents() {
   $("#metric-awaiting").textContent = String(awaiting);
   $("#metric-complete").textContent = String(activeStudents.filter((student) => bookCounts(student).returned === bookCounts(student).total && bookCounts(student).returned > 0).length);
   $("#nav-student-count").textContent = String(activeStudents.length);
-  $("#dashboard-empty").hidden = dashboard.length > 0;
   $("#students-empty").hidden = list.length > 0;
+  renderDashboard();
 }
 
 export function openNewStudent() {
@@ -163,12 +177,25 @@ export function bindStudents() {
     $("#student-enrollment").readOnly = false;
   });
 
-  $("#dashboard-search").addEventListener("input", renderStudents);
-  $("#students-search").addEventListener("input", renderStudents);
+  $("#students-search").addEventListener("input", () => {
+    state.studentsPage = 1;
+    renderStudents();
+  });
+  $("#students-previous").addEventListener("click", () => {
+    if (state.studentsPage > 1) {
+      state.studentsPage -= 1;
+      renderStudents();
+    }
+  });
+  $("#students-next").addEventListener("click", () => {
+    state.studentsPage += 1;
+    renderStudents();
+  });
   $$(".grade-filter[data-grade-filter]").forEach((filter) => filter.addEventListener("click", (event) => {
     const button = event.target.closest("[data-grade]");
     if (!button) return;
     state.grade = button.dataset.grade;
+    state.studentsPage = 1;
     $$(".grade-filter[data-grade-filter]").forEach((group) => $$(".filter-chip", group).forEach((chip) => chip.classList.toggle("is-selected", chip.dataset.grade === state.grade)));
     renderStudents();
   }));
@@ -176,6 +203,7 @@ export function bindStudents() {
     const button = event.target.closest("[data-course]");
     if (!button) return;
     state.course = button.dataset.course;
+    state.studentsPage = 1;
     renderCourseFilters();
     renderStudents();
   }));
@@ -183,7 +211,8 @@ export function bindStudents() {
     const button = event.target.closest("[data-student-status]");
     if (!button) return;
     state.studentStatus = button.dataset.studentStatus;
-    if (state.studentStatus === "completed") state.grade = "all";
+    state.studentsPage = 1;
+    if (state.studentStatus !== "active") state.grade = "all";
     $$("#student-status-filter [data-student-status]").forEach((chip) =>
       chip.classList.toggle("is-selected", chip.dataset.studentStatus === state.studentStatus)
     );

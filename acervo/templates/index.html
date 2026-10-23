@@ -64,6 +64,7 @@
       </nav>
       <div class="sidebar-bottom">
         <div class="help-card"><span class="help-spark">✳</span><strong>Precisa de ajuda?</strong><p>Consulte a equipe de apoio do campus.</p></div>
+        <div class="sidebar-credit">Desenvolvido pela <a href="http://fabrica.videira.ifc.edu.br/" target="_blank" rel="noopener">Fábrica de Software do IFC Campus Videira</a></div>
         <div class="user-card">
           <div class="avatar" id="user-avatar">IF</div>
           <div class="user-card__identity"><strong id="user-email">servidor@ifc.edu.br</strong><span id="user-role">Servidor</span></div>
@@ -90,23 +91,47 @@
           <article class="metric-card"><div class="metric-top"><span>Aguardando devolução</span><span class="metric-icon metric-icon--orange">↩</span></div><strong id="metric-awaiting">0</strong><small>livros em circulação</small></article>
           <article class="metric-card"><div class="metric-top"><span>Termos completos</span><span class="metric-icon metric-icon--blue">✓</span></div><strong id="metric-complete">0</strong><small>empréstimo e devolução</small></article>
         </div>
-        <div class="content-card recent-card">
-          <div class="card-heading"><div><h2>Estudantes</h2><p>Consulte os termos e acompanhe cada título.</p></div><button class="text-button" data-go="students">Ver todos <span>→</span></button></div>
-          <div class="table-toolbar"><label class="search-box"><span class="search-icon"></span><input id="dashboard-search" type="search" placeholder="Buscar por nome ou matrícula"></label><div class="student-filter-groups"><div class="grade-filter" id="dashboard-grade-filter" data-grade-filter><button class="filter-chip is-selected" data-grade="all">Todas as turmas</button><button class="filter-chip" data-grade="1º">1º ano</button><button class="filter-chip" data-grade="2º">2º ano</button><button class="filter-chip" data-grade="3º">3º ano</button></div><div class="grade-filter course-filter" id="dashboard-course-filter" aria-label="Filtrar por curso"></div></div></div>
-          <div class="table-scroll"><table><thead><tr><th>ESTUDANTE</th><th>MATRÍCULA</th><th>CURSO</th><th>TURMA</th><th>ENTREGA DOS LIVROS</th><th>DEVOLUÇÃO</th><th></th></tr></thead><tbody id="dashboard-students"></tbody></table></div>
-          <div class="empty-state" id="dashboard-empty" hidden><div class="empty-illustration">✳</div><strong>Nenhum estudante por aqui</strong><span>Cadastre um estudante para começar a registrar as entregas.</span><button class="button button--secondary" data-action="add-student">Cadastrar estudante</button></div>
-          <div class="table-footer"><span id="dashboard-count">0 estudantes</span><span>Atualizado em tempo real</span></div>
-        </div>
+        <section class="dashboard-insights" aria-label="Indicadores gerenciais">
+          <div class="dashboard-insights-grid">
+            <article class="content-card dashboard-chart-card">
+              <div class="card-heading"><div><h2>Estudantes por curso e turma</h2><p>Distribuição dos estudantes ativos no ciclo atual.</p></div></div>
+              <div class="chart-legend"><span><i class="legend-grade legend-grade--1"></i>1º ano</span><span><i class="legend-grade legend-grade--2"></i>2º ano</span><span><i class="legend-grade legend-grade--3"></i>3º ano</span></div>
+              <div class="dashboard-chart" id="dashboard-course-chart"></div>
+            </article>
+            <article class="content-card dashboard-chart-card">
+              <div class="card-heading"><div><h2>Situação dos livros</h2><p>Contagem por título entre os estudantes ativos.</p></div></div>
+              <div class="chart-legend"><span><i class="legend-book legend-book--delivery"></i>Aguardando entrega</span><span><i class="legend-book legend-book--return"></i>Aguardando devolução</span><span><i class="legend-book legend-book--returned"></i>Devolvido</span></div>
+              <div class="dashboard-chart dashboard-chart--books" id="dashboard-book-chart"></div>
+              <p class="chart-note">Língua Portuguesa e Matemática são contabilizadas por turma; os demais títulos são volumes únicos.</p>
+            </article>
+          </div>
+          <article class="content-card dashboard-report-card">
+            <div class="card-heading"><div><h2>Pendências de entrega e devolução</h2><p>Quantidades do ciclo letivo atual, sem classificação por tempo em atraso.</p></div></div>
+            <div class="report-summary">
+              <div><span>Livros aguardando entrega</span><strong id="report-delivery-books">0</strong><small>em <span id="report-delivery-students">0</span> estudantes</small></div>
+              <div><span>Livros aguardando devolução</span><strong id="report-return-books">0</strong><small>com <span id="report-return-students">0</span> estudantes</small></div>
+            </div>
+            <div class="table-scroll"><table class="report-table"><thead><tr><th>VÍNCULO</th><th>CURSO</th><th>TURMA</th><th>ESTUDANTES</th><th>ENTREGAS PENDENTES</th><th>DEVOLUÇÕES PENDENTES</th></tr></thead><tbody id="dashboard-pending-table"></tbody></table></div>
+            <div class="empty-state chart-empty" id="dashboard-pending-empty" hidden><strong>Nenhuma pendência neste ciclo letivo</strong></div>
+          </article>
+        </section>
         <footer class="app-footer"><span>Acervo IFC · Campus Fraiburgo · <a class="privacy-link" href="{{ url_for('main.privacy_notice') }}" target="_blank" rel="noopener">Aviso de Privacidade</a></span><span>Termo de compromisso · <span class="school-year-footer"></span></span></footer>
       </section>
 
       <section class="view view--students" id="students-view" hidden>
         <div class="page-heading page-heading--students"><div><span class="eyebrow">CADASTRO E ACOMPANHAMENTO</span><h1>Estudantes</h1><p>Gerencie os termos de entrega e devolução dos livros.</p></div><div class="page-heading__actions"><div class="button-group" role="group" aria-label="Importação de estudantes"><button class="button button--accent" id="import-students-button" type="button"><span class="import-icon">↑</span> Importar CSV</button><a class="button button--accent-quiet" id="download-students-template" href="/api/students/import-template" title="Baixar modelo CSV para importação"><span class="download-icon">↓</span> Modelo CSV</a></div><button class="button button--primary" id="add-student-button-list"><span class="plus-icon">+</span> Novo estudante</button><input id="students-csv-input" type="file" accept=".csv,text/csv" hidden></div></div>
         <div class="content-card all-students-card">
-          <div class="table-toolbar table-toolbar--students"><label class="search-box"><span class="search-icon"></span><input id="students-search" type="search" placeholder="Buscar por nome ou matrícula"></label><div class="student-filter-groups"><div class="grade-filter" id="students-grade-filter" data-grade-filter><button class="filter-chip is-selected" data-grade="all">Todas as turmas</button><button class="filter-chip" data-grade="1º">1º ano</button><button class="filter-chip" data-grade="2º">2º ano</button><button class="filter-chip" data-grade="3º">3º ano</button></div><div class="grade-filter course-filter" id="students-course-filter" aria-label="Filtrar por curso"></div><div class="grade-filter" id="student-status-filter"><button class="filter-chip is-selected" data-student-status="active">Ativos</button><button class="filter-chip" data-student-status="completed">Arquivados</button></div></div></div>
+          <div class="table-toolbar table-toolbar--students"><label class="search-box"><span class="search-icon"></span><input id="students-search" type="search" placeholder="Buscar por nome ou matrícula"></label><div class="student-filter-groups"><div class="grade-filter" id="students-grade-filter" data-grade-filter><button class="filter-chip is-selected" data-grade="all">Todas as turmas</button><button class="filter-chip" data-grade="1º">1º ano</button><button class="filter-chip" data-grade="2º">2º ano</button><button class="filter-chip" data-grade="3º">3º ano</button></div><div class="grade-filter course-filter" id="students-course-filter" aria-label="Filtrar por curso"></div><div class="grade-filter" id="student-status-filter"><button class="filter-chip is-selected" data-student-status="active">Ativos</button><button class="filter-chip" data-student-status="completed">Ciclos concluídos</button><button class="filter-chip" data-student-status="archived">Desvinculados</button></div></div></div>
           <div class="table-scroll"><table><thead><tr><th>ESTUDANTE</th><th>MATRÍCULA</th><th>CURSO</th><th>TURMA</th><th>ENTREGA DOS LIVROS</th><th>DEVOLUÇÃO</th><th></th></tr></thead><tbody id="students-table"></tbody></table></div>
           <div class="empty-state" id="students-empty" hidden><div class="empty-illustration">✳</div><strong>Nenhum resultado encontrado</strong><span>Experimente outro nome, matrícula ou turma.</span></div>
-          <div class="table-footer"><span id="students-count">0 estudantes</span><span>Atualizado em tempo real</span></div>
+          <div class="table-footer">
+            <span id="students-count">0 estudantes</span>
+            <nav class="pagination" id="students-pagination" aria-label="Paginação de estudantes">
+              <button id="students-previous" type="button" aria-label="Página anterior">Anterior</button>
+              <span id="students-page-label" aria-live="polite">Página 1 de 1</span>
+              <button id="students-next" type="button" aria-label="Próxima página">Próxima</button>
+            </nav>
+          </div>
         </div>
         <footer class="app-footer"><span>Acervo IFC · Campus Fraiburgo · <a class="privacy-link" href="{{ url_for('main.privacy_notice') }}" target="_blank" rel="noopener">Aviso de Privacidade</a></span><span>Termo de compromisso · <span class="school-year-footer"></span></span></footer>
       </section>
@@ -195,14 +220,23 @@
   </dialog>
 
   <dialog id="student-detail-dialog" class="dialog dialog--detail">
-    <div class="dialog-heading detail-heading"><div><span class="eyebrow">TERMO DE COMPROMISSO · <span id="detail-school-year"></span></span><h2 id="detail-name"></h2><p id="detail-meta"></p><label class="field-label" for="detail-year-select">Ciclo letivo</label><select class="text-input detail-year-select" id="detail-year-select" aria-label="Selecionar ciclo letivo"></select></div><div class="detail-header-actions"><button class="text-button" id="edit-student-button" type="button">Editar cadastro</button><button class="dialog-close" type="button" data-close="student-detail-dialog" aria-label="Fechar">×</button></div></div>
+    <div class="dialog-heading detail-heading"><div class="detail-heading__student"><span class="eyebrow">TERMO DE COMPROMISSO · <span id="detail-school-year"></span></span><h2 id="detail-name"></h2><p id="detail-meta"></p><p class="archive-info" id="detail-archive-info" hidden></p><div class="detail-year-control"><label for="detail-year-select">Ciclo</label><select class="text-input detail-year-select" id="detail-year-select" aria-label="Selecionar ciclo letivo"></select></div></div><div class="detail-header-actions"><button class="text-button" id="edit-student-button" type="button">Editar cadastro</button><button class="dialog-close" type="button" data-close="student-detail-dialog" aria-label="Fechar">×</button></div></div>
     <div class="detail-progress"><div><span id="detail-progress-label">0 de 15 títulos entregues</span><span><button class="text-button" id="export-student-terms-button" type="button" hidden>Exportar todos os termos <span>↗</span></button> <button class="text-button" id="export-term-button">Exportar PDF <span>↗</span></button></span></div><div class="progress-track"><span id="detail-progress-bar"></span></div></div>
     <section id="checkout-selection-bar" class="checkout-selection-bar" hidden>
       <span id="checkout-selection-count">0 selecionados</span>
       <div><button class="text-button" id="checkout-clear-selection" type="button">Limpar seleção</button><button class="button button--primary" id="checkout-selected-button" type="button" disabled>Assinar entrega dos selecionados</button></div>
     </section>
     <div class="book-list" id="book-list"></div>
-    <div class="detail-footer"><span><i class="legend-dot legend-dot--issued"></i>Entregue <i class="legend-dot legend-dot--returned"></i>Devolvido</span><button class="button button--secondary" type="button" data-close="student-detail-dialog">Concluir</button></div>
+    <div class="detail-footer"><span><i class="legend-dot legend-dot--issued"></i>Entregue <i class="legend-dot legend-dot--returned"></i>Devolvido</span><div class="detail-footer-actions"><button class="button button--secondary" id="archive-student-button" type="button">Desvincular</button><button class="button button--secondary" id="reactivate-student-button" type="button" hidden>Reativar vínculo</button><button class="button button--danger-quiet" id="delete-student-button" type="button" hidden>Excluir cadastro</button><button class="button button--secondary" type="button" data-close="student-detail-dialog">Concluir</button></div></div>
+  </dialog>
+
+  <dialog id="student-archive-dialog" class="dialog dialog--form">
+    <form id="student-archive-form">
+      <div class="dialog-heading"><div><span class="eyebrow">DESVINCULAR ESTUDANTE</span><h2>Arquivar cadastro</h2><p>O histórico e os termos serão preservados. Informe o motivo do desligamento.</p></div><button class="dialog-close" type="button" data-close="student-archive-dialog" aria-label="Fechar">×</button></div>
+      <label class="field-label" for="student-archive-reason">Motivo do desligamento</label>
+      <textarea class="text-input archive-reason" id="student-archive-reason" maxlength="500" required></textarea>
+      <div class="dialog-actions"><button class="button button--secondary" type="button" data-close="student-archive-dialog">Cancelar</button><button class="button button--primary" id="student-archive-submit" type="submit">Confirmar desvinculação</button></div>
+    </form>
   </dialog>
 
   <dialog id="enrollment-confirmation-dialog" class="dialog dialog--form">

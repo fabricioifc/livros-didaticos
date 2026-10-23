@@ -57,7 +57,19 @@ export function renderStudentDetail() {
     `<option value="${year.school_year}">${year.school_year}${year.status === "completed" ? " · concluído" : ""}</option>`
   ).join("");
   yearSelect.value = String(student.school_year);
-  $("#edit-student-button").hidden = student.school_year !== state.schoolYear || student.status !== "active";
+  $("#edit-student-button").hidden = student.is_archived || student.school_year !== state.schoolYear || student.status !== "active";
+  $("#archive-student-button").hidden = student.is_archived;
+  $("#reactivate-student-button").hidden = !student.is_archived;
+  $("#delete-student-button").hidden = !state.isAdmin;
+  $("#delete-student-button").disabled = student.has_loan_history;
+  $("#delete-student-button").title = student.has_loan_history
+    ? "Não é possível excluir um cadastro com empréstimos, devoluções ou histórico."
+    : "Excluir definitivamente um cadastro sem movimentações";
+  const archiveInfo = $("#detail-archive-info");
+  archiveInfo.hidden = !student.is_archived;
+  archiveInfo.textContent = student.is_archived
+    ? `Desvinculado em ${formatDate(student.archived_at)} por ${student.archived_by}. Motivo: ${student.archive_reason}`
+    : "";
   $("#export-student-terms-button").hidden = student.years.length < 2;
   $("#detail-name").textContent = student.name;
   $("#detail-meta").textContent = student.status === "completed"
@@ -65,7 +77,7 @@ export function renderStudentDetail() {
     : `Matrícula ${student.enrollment} · ${student.course_name} · ${student.grade} ano`;
   $("#detail-progress-label").textContent = `${counts.issued} de ${counts.total} títulos entregues`;
   $("#detail-progress-bar").style.width = `${counts.total ? Math.round((counts.issued / counts.total) * 100) : 0}%`;
-  const canCheckout = student.school_year === state.schoolYear && student.status === "active";
+  const canCheckout = !student.is_archived && student.school_year === state.schoolYear && student.status === "active";
   $("#checkout-selection-bar").hidden = !canCheckout;
   $("#checkout-selection-count").textContent = `${state.selectedCheckoutBooks.size} selecionado${state.selectedCheckoutBooks.size === 1 ? "" : "s"}`;
   $("#checkout-selected-button").disabled = state.selectedCheckoutBooks.size === 0;
@@ -125,6 +137,70 @@ function openCheckoutConfirmation() {
 export function bindStudentDetail() {
   $("#edit-student-button").addEventListener("click", editCurrentStudent);
   $("#detail-year-select").addEventListener("change", (event) => selectStudentYear(Number(event.target.value)));
+  $("#archive-student-button").addEventListener("click", () => {
+    $("#student-archive-reason").value = "";
+    $("#student-archive-dialog").showModal();
+    $("#student-archive-reason").focus();
+  });
+  $("#student-archive-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const enrollment = state.currentStudent.enrollment;
+    const button = $("#student-archive-submit");
+    button.disabled = true;
+    try {
+      await api(`/api/students/${encodeURIComponent(enrollment)}/archive`, {
+        method: "POST",
+        body: JSON.stringify({ reason: $("#student-archive-reason").value }),
+      });
+      $("#student-archive-dialog").close();
+      elements.detailDialog.close();
+      await refreshStudents();
+      await openStudent(enrollment);
+      notify("Vínculo arquivado. O histórico do estudante foi preservado.");
+    } catch (error) {
+      notify(error.message, "error");
+    } finally {
+      button.disabled = false;
+    }
+  });
+  $("#reactivate-student-button").addEventListener("click", async () => {
+    const enrollment = state.currentStudent.enrollment;
+    const button = $("#reactivate-student-button");
+    button.disabled = true;
+    try {
+      await api(`/api/students/${encodeURIComponent(enrollment)}/reactivate`, { method: "POST" });
+      await refreshStudents();
+      const record = await api(`/api/students/${encodeURIComponent(enrollment)}`);
+      state.currentStudent = { ...state.students.find((student) => student.enrollment === enrollment), ...record };
+      state.selectedCheckoutBooks.clear();
+      renderStudentDetail();
+      notify("Vínculo reativado. Confira a turma atual no cadastro.");
+    } catch (error) {
+      notify(error.message, "error");
+    } finally {
+      button.disabled = false;
+    }
+  });
+  $("#delete-student-button").addEventListener("click", async () => {
+    const student = state.currentStudent;
+    if (student.has_loan_history) return;
+    const confirmed = window.confirm(
+      `Excluir permanentemente o cadastro de ${student.name} (${student.enrollment})? Esta ação não pode ser desfeita.`
+    );
+    if (!confirmed) return;
+    const button = $("#delete-student-button");
+    button.disabled = true;
+    try {
+      await api(`/api/students/${encodeURIComponent(student.enrollment)}`, { method: "DELETE" });
+      elements.detailDialog.close();
+      await refreshStudents();
+      notify("Cadastro excluído.");
+    } catch (error) {
+      notify(error.message, "error");
+    } finally {
+      button.disabled = false;
+    }
+  });
 
   $("#enrollment-confirmation-form").addEventListener("submit", (event) => {
     event.preventDefault();

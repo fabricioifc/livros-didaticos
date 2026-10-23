@@ -367,6 +367,55 @@ def update_student(enrollment):
     return jsonify(student)
 
 
+@main.post("/api/students/<enrollment>/archive")
+@login_required
+def archive_student(enrollment):
+    error = csrf_error()
+    if error:
+        return error
+    try:
+        student = services.archive_student(
+            current_app.config["DATABASE_PATH"],
+            enrollment,
+            request_body(),
+            g.user_email,
+        )
+    except services.ServiceError as error:
+        return handle_service_error(error)
+    return jsonify(student)
+
+
+@main.post("/api/students/<enrollment>/reactivate")
+@login_required
+def reactivate_student(enrollment):
+    error = csrf_error()
+    if error:
+        return error
+    try:
+        student = services.reactivate_student(
+            current_app.config["DATABASE_PATH"],
+            enrollment,
+            g.user_email,
+            current_app.config["SCHOOL_YEAR"],
+        )
+    except services.ServiceError as error:
+        return handle_service_error(error)
+    return jsonify(student)
+
+
+@main.delete("/api/students/<enrollment>")
+@admin_required
+def delete_student(enrollment):
+    error = csrf_error()
+    if error:
+        return error
+    try:
+        services.delete_student(current_app.config["DATABASE_PATH"], enrollment)
+    except services.ServiceError as error:
+        return handle_service_error(error)
+    return jsonify({"ok": True})
+
+
 @main.get("/api/students/<enrollment>")
 @login_required
 def get_student(enrollment):

@@ -99,6 +99,16 @@ def initialize_db(database_path, school_year):
                 FOREIGN KEY (enrollment, book_id)
                     REFERENCES book_signatures(enrollment, book_id) ON DELETE CASCADE
             );
+            CREATE TABLE IF NOT EXISTS student_status_history (
+                id INTEGER PRIMARY KEY,
+                enrollment TEXT NOT NULL REFERENCES students(enrollment) ON DELETE CASCADE,
+                action TEXT NOT NULL CHECK (action IN ('archive', 'reactivate')),
+                recorded_at TEXT NOT NULL,
+                actor_email TEXT NOT NULL,
+                reason TEXT
+            );
+            CREATE INDEX IF NOT EXISTS student_status_history_enrollment
+                ON student_status_history (enrollment, id);
             """
         )
         user_columns = {
@@ -648,13 +658,124 @@ def update_student(database_path, enrollment, name, grade, course_id, school_yea
     return True
 
 
+def archive_student(database_path, enrollment, actor_email, reason, recorded_at):
+    with database(database_path) as db:
+        if not db.execute(
+            "SELECT 1 FROM students WHERE enrollment = ?", (enrollment,)
+        ).fetchone():
+            return "not_found"
+        active_archive = db.execute(
+            """SELECT 1 FROM student_status_history h
+               WHERE h.enrollment = ? AND h.action = 'archive'
+                 AND NOT EXISTS (
+                     SELECT 1 FROM student_status_history later
+                     WHERE later.enrollment = h.enrollment
+                       AND later.id > h.id AND later.action = 'reactivate'
+                 )
+               ORDER BY h.id DESC LIMIT 1""",
+            (enrollment,),
+        ).fetchone()
+        if active_archive:
+            return "already_archived"
+        db.execute(
+            """INSERT INTO student_status_history
+                   (enrollment, action, recorded_at, actor_email, reason)
+               VALUES (?, 'archive', ?, ?, ?)""",
+            (enrollment, recorded_at, actor_email, reason),
+        )
+    return None
+
+
+def reactivate_student(database_path, enrollment, school_year, actor_email, recorded_at):
+    with database(database_path) as db:
+        student = db.execute(
+            "SELECT grade FROM students WHERE enrollment = ?", (enrollment,)
+        ).fetchone()
+        if not student:
+            return "not_found"
+        active_archive = db.execute(
+            """SELECT 1 FROM student_status_history h
+               WHERE h.enrollment = ? AND h.action = 'archive'
+                 AND NOT EXISTS (
+                     SELECT 1 FROM student_status_history later
+                     WHERE later.enrollment = h.enrollment
+                       AND later.id > h.id AND later.action = 'reactivate'
+                 )
+               ORDER BY h.id DESC LIMIT 1""",
+            (enrollment,),
+        ).fetchone()
+        if not active_archive:
+            return "not_archived"
+        current_term = db.execute(
+            """SELECT grade FROM student_years
+               WHERE enrollment = ? AND school_year = ?""",
+            (enrollment, school_year),
+        ).fetchone()
+        grade = current_term["grade"] if current_term else student["grade"]
+        if current_term:
+            db.execute(
+                """UPDATE student_years SET status = 'active'
+                   WHERE enrollment = ? AND school_year = ?""",
+                (enrollment, school_year),
+            )
+        db.execute(
+            "UPDATE students SET grade = ? WHERE enrollment = ?",
+            (grade, enrollment),
+        )
+        _insert_school_year(db, enrollment, school_year, grade)
+        db.execute(
+            """INSERT INTO student_status_history
+                   (enrollment, action, recorded_at, actor_email, reason)
+               VALUES (?, 'reactivate', ?, ?, NULL)""",
+            (enrollment, recorded_at, actor_email),
+        )
+    return None
+
+
+def delete_student_without_history(database_path, enrollment):
+    with database(database_path) as db:
+        if not db.execute(
+            "SELECT 1 FROM students WHERE enrollment = ?", (enrollment,)
+        ).fetchone():
+            return "not_found"
+        has_signatures = db.execute(
+            """SELECT 1 FROM book_signatures
+               WHERE enrollment = ?
+                 AND (checkout_signature IS NOT NULL OR return_signature IS NOT NULL)
+               LIMIT 1""",
+            (enrollment,),
+        ).fetchone()
+        has_history = db.execute(
+            "SELECT 1 FROM book_signature_history WHERE enrollment = ? LIMIT 1",
+            (enrollment,),
+        ).fetchone()
+        if has_signatures or has_history:
+            return "has_history"
+        db.execute("DELETE FROM students WHERE enrollment = ?", (enrollment,))
+    return None
+
+
 def find_student(database_path, enrollment, school_year=None):
     with database(database_path) as db:
         student = db.execute(
-            """SELECT s.enrollment, s.name, s.grade, s.created_at,
+            """WITH active_archive AS (
+                   SELECT h.enrollment, h.recorded_at, h.actor_email, h.reason
+                   FROM student_status_history h
+                   WHERE h.action = 'archive'
+                     AND NOT EXISTS (
+                         SELECT 1 FROM student_status_history later
+                         WHERE later.enrollment = h.enrollment
+                           AND later.id > h.id AND later.action = 'reactivate'
+                     )
+               )
+               SELECT s.enrollment, s.name, s.grade, s.created_at,
                       s.course_id, c.name AS course_name,
-                      c.abbreviation AS course_abbreviation
+                      c.abbreviation AS course_abbreviation,
+                      (aa.enrollment IS NOT NULL) AS is_archived,
+                      aa.recorded_at AS archived_at, aa.actor_email AS archived_by,
+                      aa.reason AS archive_reason
                FROM students s JOIN courses c ON c.id = s.course_id
+               LEFT JOIN active_archive aa ON aa.enrollment = s.enrollment
                WHERE s.enrollment = ?""",
             (enrollment,),
         ).fetchone()
@@ -695,8 +816,21 @@ def find_student(database_path, enrollment, school_year=None):
                 selected_year,
             ),
         ).fetchall()
+        has_activity = db.execute(
+            """SELECT
+                   EXISTS (
+                       SELECT 1 FROM book_signatures
+                       WHERE enrollment = ?
+                         AND (checkout_signature IS NOT NULL OR return_signature IS NOT NULL)
+                   ) OR EXISTS (
+                       SELECT 1 FROM book_signature_history WHERE enrollment = ?
+                   ) AS has_activity""",
+            (enrollment, enrollment),
+        ).fetchone()["has_activity"]
     return {
         **dict(student),
+        "is_archived": bool(student["is_archived"]),
+        "has_loan_history": bool(has_activity),
         "grade": selected_term["grade"],
         "school_year": selected_term["school_year"],
         "status": selected_term["status"],
@@ -718,16 +852,30 @@ def list_students(database_path, query, school_year, exact_year=False):
     )
     with database(database_path) as db:
         rows = db.execute(
-            """SELECT s.enrollment, s.name, s.course_id, c.name AS course_name,
+            """WITH active_archive AS (
+                   SELECT h.enrollment, h.recorded_at, h.actor_email, h.reason
+                   FROM student_status_history h
+                   WHERE h.action = 'archive'
+                     AND NOT EXISTS (
+                         SELECT 1 FROM student_status_history later
+                         WHERE later.enrollment = h.enrollment
+                           AND later.id > h.id AND later.action = 'reactivate'
+                     )
+               )
+               SELECT s.enrollment, s.name, s.course_id, c.name AS course_name,
                       c.abbreviation AS course_abbreviation,
                       COALESCE(y.grade, s.grade) AS grade,
                       COALESCE(y.status, 'completed') AS status, s.created_at,
+                      (aa.enrollment IS NOT NULL) AS is_archived,
+                      aa.recorded_at AS archived_at, aa.actor_email AS archived_by,
+                      aa.reason AS archive_reason,
                       COUNT(b.book_id) AS total_books,
                       SUM(CASE WHEN b.checkout_signature IS NOT NULL THEN 1 ELSE 0 END) AS checked_out,
                       SUM(CASE WHEN b.checkout_signature IS NOT NULL AND b.return_signature IS NULL
                                THEN 1 ELSE 0 END) AS awaiting_return
                FROM students s
                JOIN courses c ON c.id = s.course_id
+               LEFT JOIN active_archive aa ON aa.enrollment = s.enrollment
                LEFT JOIN student_years y ON """ + year_join + """
                LEFT JOIN student_year_books yb
                  ON yb.enrollment = y.enrollment AND yb.school_year = y.school_year
@@ -745,6 +893,7 @@ def list_students(database_path, query, school_year, exact_year=False):
     return [
         {
             **dict(row),
+            "is_archived": bool(row["is_archived"]),
             "checked_out": row["checked_out"] or 0,
             "awaiting_return": row["awaiting_return"] or 0,
         }
