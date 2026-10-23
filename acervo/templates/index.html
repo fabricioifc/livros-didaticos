@@ -3,9 +3,10 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#f6f7f5">
+  <meta name="theme-color" content="#174e38">
   <title>Acervo IFC — Livros didáticos</title>
   <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg', v=static_asset_version('favicon.svg')) }}">
+  <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest', v=static_asset_version('manifest.webmanifest')) }}">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -56,6 +57,7 @@
     <aside class="sidebar" id="sidebar">
       <a class="brand-mark brand-mark--sidebar" href="#" aria-label="Acervo IFC início"><span class="brand-mark__block">ifc</span><span>fraiburgo</span></a>
       <div class="sidebar-campus"><span class="campus-dot"></span> CAMPUS FRAIBURGO</div>
+      <div class="school-year sidebar-school-year"><span class="status-dot"></span> Ano letivo <span id="school-year-label"></span></div>
       <div class="nav-section-label">GESTÃO</div>
       <nav class="main-nav" aria-label="Navegação principal">
         <button class="nav-item is-active" data-view="dashboard"><span class="nav-icon nav-icon--grid"></span> Visão geral</button>
@@ -78,7 +80,7 @@
       <header class="topbar">
         <button class="icon-button menu-button" id="menu-button" type="button" aria-label="Ocultar menu lateral" aria-expanded="true" title="Ocultar menu lateral"><span class="menu-icon"></span></button>
         <div class="breadcrumb"><span>Acervo IFC</span><span class="breadcrumb-separator">/</span><strong id="breadcrumb-current">Visão geral</strong></div>
-        <div class="topbar-right"><button class="icon-button topbar-action" id="export-annual-backup-button" type="button" aria-label="Exportar termos do ano" title="Exportar termos do ano"><svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16v12a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z"/><path d="M3 4h18v3H3z"/><path d="M12 10.5v6"/><path d="m9.5 14 2.5 2.5 2.5-2.5"/></svg></button><span class="school-year"><span class="status-dot"></span> Ano letivo <span id="school-year-label"></span></span><div class="top-avatar" id="top-avatar">IF</div></div>
+        <div class="topbar-right"><button class="icon-button install-app-button" id="install-app-button" type="button" aria-label="Instalar Acervo IFC" title="Instalar Acervo IFC"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v11"/><path d="m8 10 4 4 4-4"/><path d="M5 16v3h14v-3"/></svg><span>Instalar</span></button><button class="icon-button topbar-action" id="export-annual-backup-button" type="button" aria-label="Exportar termos do ano" title="Exportar termos do ano"><svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16v12a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z"/><path d="M3 4h18v3H3z"/><path d="M12 10.5v6"/><path d="m9.5 14 2.5 2.5 2.5-2.5"/></svg></button></div>
       </header>
 
       <section class="view view--dashboard" id="dashboard-view">

@@ -1,4 +1,5 @@
 import base64
+import json
 from io import BytesIO
 import sqlite3
 import tempfile
@@ -1279,8 +1280,11 @@ class LibraryAppTest(unittest.TestCase):
         self.assertIn("Exportar termos do ano".encode(), page.data)
         self.assertIn(b"Aviso de Privacidade", page.data)
         self.assertRegex(page.data, rb"/static/favicon\.svg\?v=\d+")
+        self.assertRegex(page.data, rb"/static/manifest\.webmanifest\?v=\d+")
+        self.assertIn(b'id="install-app-button"', page.data)
         self.assertRegex(page.data, rb"/static/styles\.css\?v=\d+")
         self.assertRegex(page.data, rb"/static/js/main\.js\?v=\d+")
+        self.assertRegex(page.data, rb'"/static/js/pwa\.js": "/static/js/pwa\.js\?v=\d+"')
         self.assertRegex(page.data, rb'"/static/js/dashboard\.js": "/static/js/dashboard\.js\?v=\d+"')
         self.assertRegex(page.data, rb'"/static/js/api\.js": "/static/js/api\.js\?v=\d+"')
         self.assertIn(b"Livros selecionados", page.data)
@@ -1316,8 +1320,8 @@ class LibraryAppTest(unittest.TestCase):
         self.assertEqual(privacy.status_code, 200)
         self.assertRegex(privacy.data, rb"/static/favicon\.svg\?v=\d+")
         self.assertRegex(privacy.data, rb"/static/styles\.css\?v=\d+")
-        self.assertIn("15 a 17 anos".encode(), privacy.data)
-        self.assertIn("controle interno e arquivo".encode(), privacy.data)
+        self.assertIn("Instituto Federal Catarinense".encode(), privacy.data)
+        self.assertIn("Lei Geral de Proteção".encode(), privacy.data)
         self.assertEqual(self.client.get("/aluno").status_code, 404)
         self.assertEqual(self.client.get("/api/student-auth/session").status_code, 404)
         self.assertEqual(
@@ -1329,6 +1333,30 @@ class LibraryAppTest(unittest.TestCase):
         with self.client.get("/static/favicon.svg") as favicon:
             self.assertEqual(favicon.status_code, 200)
             self.assertIn(b"<svg", favicon.data)
+        with self.client.get("/static/manifest.webmanifest") as manifest_response:
+            self.assertEqual(manifest_response.status_code, 200)
+            manifest = json.loads(manifest_response.data)
+            self.assertEqual(manifest["display"], "standalone")
+            self.assertEqual(manifest["scope"], "/")
+            self.assertEqual(
+                {icon["sizes"] for icon in manifest["icons"]},
+                {"192x192", "512x512"},
+            )
+            for icon in manifest["icons"]:
+                with self.client.get(icon["src"]) as icon_response:
+                    self.assertEqual(icon_response.status_code, 200)
+                    self.assertEqual(icon_response.mimetype, "image/png")
+                    self.assertTrue(icon_response.data.startswith(b"\x89PNG\r\n\x1a\n"))
+        with self.client.get("/service-worker.js") as service_worker:
+            self.assertEqual(service_worker.status_code, 200)
+            self.assertEqual(
+                service_worker.headers["Service-Worker-Allowed"],
+                "/",
+            )
+            self.assertIn("Sem conexão".encode(), service_worker.data)
+            self.assertNotIn(b"caches.open", service_worker.data)
+        with self.client.get("/static/js/pwa.js") as pwa_script:
+            self.assertEqual(pwa_script.status_code, 200)
         with self.client.get("/static/js/main.js") as script:
             self.assertEqual(script.status_code, 200)
         with self.client.get("/static/js/dashboard.js") as script:

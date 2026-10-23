@@ -111,7 +111,7 @@ button { cursor: pointer; }
 .sidebar-credit a { color: #52715d; text-decoration: none; }
 .sidebar-credit a:hover { text-decoration: underline; }
 .user-card { margin-top: 15px; padding: 13px 1px 0; border-top: 1px solid #eef0ee; display: flex; align-items: center; gap: 9px; }
-.avatar, .top-avatar { width: 31px; height: 31px; border-radius: 50%; display: grid; place-items: center; background: #eaf0e9; color: #31593d; font-size: 10px; font-weight: 700; }
+.avatar { width: 31px; height: 31px; border-radius: 50%; display: grid; place-items: center; background: #eaf0e9; color: #31593d; font-size: 10px; font-weight: 700; }
 .user-card__identity { min-width: 0; display: grid; gap: 3px; }
 .user-card__identity strong { max-width: 142px; overflow: hidden; color: #37423a; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .user-card__identity span { color: #939c95; font-size: 9px; }
@@ -135,11 +135,14 @@ button { cursor: pointer; }
 .breadcrumb-separator { color: #c3cac5; }
 .topbar-right { display: flex; align-items: center; gap: 15px; }
 .school-year { display: flex; align-items: center; gap: 7px; padding: 6px 9px; border: 1px solid #e7ece7; border-radius: 4px; background: #fff; color: #6c796e; font-size: 10px; }
+.sidebar-school-year { width: fit-content; margin: -16px 5px 25px; }
 .status-dot { width: 6px; height: 6px; }
-.top-avatar { width: 29px; height: 29px; }
 .topbar-action { width: 32px; height: 32px; border: 1px solid #e7ece7; border-radius: 6px; background: #fff; color: #52715d; }
 .topbar-action:hover { border-color: #cddbcf; background: #f4f8f4; color: var(--green-text); }
 .topbar-action:focus-visible { outline: 2px solid #71927d; outline-offset: 2px; }
+.install-app-button { min-height: 31px; padding: 0 8px; border: 1px solid transparent; border-radius: 5px; display: inline-flex; align-items: center; gap: 5px; color: #718079; font-size: 9px; }
+.install-app-button:hover { border-color: #e7ece7; background: #f4f8f4; color: var(--green-text); }
+.install-app-button:focus-visible { outline: 2px solid #71927d; outline-offset: 2px; }
 .view { max-width: 1260px; margin: 0 auto; padding: 35px 0 20px; }
 .page-heading { margin-bottom: 25px; display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; }
 .page-heading .eyebrow { font-size: 9px; }
@@ -415,6 +418,7 @@ dialog[open].dialog--detail { display: flex; flex-direction: column; }
 .signature-consent { margin: 20px 0 0; padding: 12px; border-radius: 5px; background: #f5f8f5; color: #748078; font-size: 10px; line-height: 1.6; }
 .toast-region { position: fixed; z-index: 20; top: 18px; right: 18px; display: grid; gap: 8px; }
 .toast { max-width: min(370px, calc(100vw - 32px)); padding: 12px 15px; border: 1px solid #dce9df; border-radius: 6px; background: #fff; box-shadow: 0 7px 25px rgba(29, 48, 35, .12); color: #3e6246; font-size: 11px; animation: toast-in .2s ease-out; }
+.toast--info { border-color: #dce5ea; color: #486879; }
 .toast--error { border-color: #efd9d6; color: #9c514b; }
 @keyframes toast-in { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
 
@@ -464,8 +468,8 @@ dialog[open].dialog--detail { display: flex; flex-direction: column; }
   .application.sidebar-collapsed .sidebar { transform: translateX(-100%); }
   .topbar { justify-content: flex-start; }
   .topbar-right { margin-left: auto; gap: 8px; }
-  .school-year { padding: 5px 7px; font-size: 9px; }
-  .top-avatar { width: 26px; height: 26px; font-size: 9px; }
+  .install-app-button { width: 30px; height: 30px; padding: 0; justify-content: center; }
+  .install-app-button span { display: none; }
   .view { padding-top: 26px; }
   .page-heading h1 { font-size: 23px; }
   .page-heading p { max-width: 270px; font-size: 11px; line-height: 1.5; }
@@ -593,7 +597,7 @@ dialog[open].dialog--detail { display: flex; flex-direction: column; }
 :root[data-theme="dark"] .sidebar-credit { color: #828b84; }
 :root[data-theme="dark"] .sidebar-credit a { color: #9ec8ac; }
 :root[data-theme="dark"] .user-card { border-top: 1px solid #303330; }
-:root[data-theme="dark"] .avatar, :root[data-theme="dark"] .top-avatar { background: #1d241f; color: #b6d3bf; }
+:root[data-theme="dark"] .avatar { background: #1d241f; color: #b6d3bf; }
 :root[data-theme="dark"] .user-card__identity strong { color: #c8d0ca; }
 :root[data-theme="dark"] .user-card__identity span { color: #7a837c; }
 :root[data-theme="dark"] .icon-button { color: #909893; }
@@ -718,6 +722,7 @@ dialog[open].dialog--detail { display: flex; flex-direction: column; }
 :root[data-theme="dark"] .signature-controls { color: #747e76; }
 :root[data-theme="dark"] .signature-consent { background: #191f1b; color: #939c96; }
 :root[data-theme="dark"] .toast { border: 1px solid #344037; background: #161b17; box-shadow: 0 7px 25px rgba(0, 0, 0, 0.26); color: #aec8b4; }
+:root[data-theme="dark"] .toast--info { border-color: #34434b; color: #a2c1d0; }
 :root[data-theme="dark"] .toast--error { border-color: #46312f; color: #ba8480; }
 
 :root[data-theme="dark"] .button--accent { border-color: #2c5a41; background: #14271c; }
@@ -727,6 +732,8 @@ dialog[open].dialog--detail { display: flex; flex-direction: column; }
 
 :root[data-theme="dark"] .topbar-action { border-color: #2b332e; background: #161b17; color: #9fbcaa; }
 :root[data-theme="dark"] .topbar-action:hover { border-color: #3a453f; background: #1c221e; color: var(--green-text); }
+:root[data-theme="dark"] .install-app-button { color: #9daea3; }
+:root[data-theme="dark"] .install-app-button:hover { border-color: #333b35; background: #1c221e; color: #b3d8c0; }
 
 /* Assinaturas são imagens com traço escuro sobre fundo transparente:
    mantêm um fundo claro, como papel, para continuarem legíveis. */

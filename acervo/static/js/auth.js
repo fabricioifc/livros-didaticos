@@ -29,7 +29,6 @@ export function showApplication(email, isAdmin = false) {
   $("#user-role").textContent = isAdmin ? "Administrador" : "Servidor";
   const initials = email.split("@")[0].split(/[._-]/).slice(0, 2).map((part) => part[0]?.toUpperCase() || "").join("");
   $("#user-avatar").textContent = initials;
-  $("#top-avatar").textContent = initials;
   const today = new Date();
   $("#today-weekday").textContent = new Intl.DateTimeFormat("pt-BR", { weekday: "long" }).format(today).toUpperCase();
   $("#today-date").textContent = new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "long" }).format(today).toUpperCase();

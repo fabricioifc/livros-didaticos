@@ -9,6 +9,7 @@ import { bindSignature, openSignature } from "./signature.js";
 import { bindPrint } from "./print.js";
 import { bindAdmin, saveManagedUser, toggleCourse } from "./admin.js";
 import { bindTheme } from "./theme.js";
+import { bindPwa } from "./pwa.js";
 
 function bindGlobalActions() {
   document.addEventListener("click", (event) => {
@@ -34,6 +35,7 @@ async function initialize() {
   bindPrint();
   bindAdmin();
   bindTheme();
+  bindPwa();
   bindGlobalActions();
   prepareLogin();
   try {

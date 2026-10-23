@@ -3,7 +3,7 @@ import secrets
 import time
 from functools import wraps
 
-from flask import Blueprint, Response, current_app, g, jsonify, render_template, request, session
+from flask import Blueprint, Response, current_app, g, jsonify, render_template, request, send_from_directory, session
 
 from . import services
 
@@ -98,6 +98,19 @@ def handle_service_error(error):
 @main.get("/")
 def index():
     return render_template("index.html")
+
+
+@main.get("/service-worker.js")
+def service_worker():
+    response = send_from_directory(
+        current_app.static_folder,
+        "service-worker.js",
+        mimetype="application/javascript",
+        max_age=0,
+    )
+    response.headers["Service-Worker-Allowed"] = "/"
+    response.headers["Cache-Control"] = "no-cache"
+    return response
 
 
 @main.get("/privacidade")
