@@ -677,24 +677,24 @@ def sign_book(
     server_email,
     school_year,
 ):
-    if action not in {"checkout", "return"}:
+    # Entregas têm um único caminho, sign_books, que confere o termo do ciclo.
+    if action == "checkout":
+        raise ServiceError(
+            "Registre a entrega selecionando os livros no termo do estudante.", 400
+        )
+    if action != "return":
         raise ServiceError("Operação inválida.", 400)
     student = repository.find_student(database_path, enrollment, school_year)
-    if action == "checkout" and (
-        not student or student["status"] != "active" or student["is_archived"]
-    ):
-        raise ServiceError("Não é possível registrar uma entrega fora do ciclo letivo ativo.", 409)
-    if not student and action == "return":
+    if not student:
         student = repository.find_student(database_path, enrollment)
     if not student:
         raise ServiceError("Estudante não encontrado.", 404)
     if not validate_signature(signature):
         raise ServiceError("A assinatura está inválida ou vazia.", 400)
-    result = repository.record_signature(
+    result = repository.record_return(
         database_path,
         enrollment,
         book_id,
-        action,
         signature,
         now_iso(),
         server_email,
@@ -703,9 +703,7 @@ def sign_book(
     errors = {
         "book_not_found": ("Livro não encontrado para este estudante.", 404),
         "checkout_required": ("O servidor só pode registrar a devolução de um livro já entregue.", 409),
-        "already_checked_out": ("A assinatura de entrega deste título já foi registrada.", 409),
         "already_returned": ("A devolução deste título já foi registrada.", 409),
-        "wrong_school_year": ("A entrega deste título pertence a outro ano letivo.", 409),
     }
     if result:
         message, status = errors[result]

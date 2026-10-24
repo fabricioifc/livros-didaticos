@@ -3,12 +3,39 @@ import json
 from contextlib import closing
 from io import BytesIO
 import sqlite3
+import struct
 import tempfile
 import unittest
+import zlib
 from pathlib import Path
 
 from acervo import create_app, repository
 from acervo.services import create_user
+
+
+def make_signature_png(width=120, height=40, ink=True, color_type=6):
+    channels = 4 if color_type == 6 else 3
+    rows = []
+    for y in range(height):
+        row = bytearray(width * channels)
+        if ink and 15 <= y <= 18:
+            for x in range(10, width - 10):
+                row[x * channels:(x + 1) * channels] = b"\x23\x4b\x3a\xff"[:channels]
+        rows.append(b"\x00" + bytes(row))
+
+    def chunk(kind, data):
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+
+    png = (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, color_type, 0, 0, 0))
+        + chunk(b"IDAT", zlib.compress(b"".join(rows)))
+        + chunk(b"IEND", b"")
+    )
+    return "data:image/png;base64," + base64.b64encode(png).decode()
+
+
+TEST_SIGNATURE = make_signature_png()
 
 
 class LibraryAppTest(unittest.TestCase):
@@ -436,9 +463,7 @@ class LibraryAppTest(unittest.TestCase):
         self.assertEqual(enrollments, ["2026000013"])
 
     def signature_data(self):
-        return "data:image/png;base64," + base64.b64encode(
-            b"\x89PNG\r\n\x1a\nvalid-test-image"
-        ).decode()
+        return TEST_SIGNATURE
 
     def student_book_ids(self, client, enrollment, year=None):
         suffix = f"?year={year}" if year else ""
@@ -745,22 +770,69 @@ class LibraryAppTest(unittest.TestCase):
             headers={"X-CSRF-Token": self.csrf()},
         )
         self.assertEqual(created.status_code, 201)
-        signature = "data:image/png;base64," + base64.b64encode(
-            b"\x89PNG\r\n\x1a\nvalid-test-image"
-        ).decode()
+        signature = TEST_SIGNATURE
 
-        checked_out = self.client.put(
+        individual_checkout = self.client.put(
             "/api/students/2026000001/books/portugues-2026-1/checkout",
             json={"signature": signature},
             headers={"X-CSRF-Token": self.csrf()},
         )
-        self.assertEqual(checked_out.status_code, 200)
+        self.assertEqual(individual_checkout.status_code, 400)
+        self.assertIsNone(
+            self.client.get("/api/students/2026000001").get_json()["books"][0]["checkout_signature"]
+        )
         batch_checkout = self.client.post(
             "/api/students/2026000001/books/checkout",
-            json={"book_ids": ["matematica-2026-1", "redacao"], "signature": signature},
+            json={"book_ids": ["portugues-2026-1", "redacao"], "signature": signature},
             headers={"X-CSRF-Token": self.csrf()},
         )
         self.assertEqual(batch_checkout.status_code, 200)
+        returned = self.client.put(
+            "/api/students/2026000001/books/redacao/return",
+            json={"signature": signature},
+            headers={"X-CSRF-Token": self.csrf()},
+        )
+        self.assertEqual(returned.status_code, 200)
+
+    def test_signatures_must_be_real_non_blank_png_images(self):
+        self.login()
+        created = self.client.post(
+            "/api/students",
+            json={"name": "Ana Silva", "enrollment": "2026000001", "grade": "1º", "course_id": self.informatics_course_id},
+            headers={"X-CSRF-Token": self.csrf()},
+        )
+        self.assertEqual(created.status_code, 201)
+        header_only = "data:image/png;base64," + base64.b64encode(b"\x89PNG\r\n\x1a\n").decode()
+        corrupted_png = TEST_SIGNATURE[:-12] + "AAAAAAAAAAAA"
+        invalid = {
+            "cabeçalho sem imagem": header_only,
+            "bytes arbitrários": header_only[:-4] + base64.b64encode(b"\x89PNG\r\n\x1a\nvalid-test-image").decode(),
+            "PNG corrompido": corrupted_png,
+            "canvas em branco": make_signature_png(ink=False),
+            "imagem minúscula": make_signature_png(width=10, height=10),
+            "PNG sem transparência": make_signature_png(color_type=2),
+            "outro formato": "data:image/jpeg;base64,/9j/4AAQ",
+        }
+        for label, signature in invalid.items():
+            with self.subTest(label):
+                response = self.client.post(
+                    "/api/students/2026000001/books/checkout",
+                    json={"book_ids": ["redacao"], "signature": signature},
+                    headers={"X-CSRF-Token": self.csrf()},
+                )
+                self.assertEqual(response.status_code, 400)
+        delivered = self.client.post(
+            "/api/students/2026000001/books/checkout",
+            json={"book_ids": ["redacao"], "signature": TEST_SIGNATURE},
+            headers={"X-CSRF-Token": self.csrf()},
+        )
+        self.assertEqual(delivered.status_code, 200)
+        blank_return = self.client.put(
+            "/api/students/2026000001/books/redacao/return",
+            json={"signature": make_signature_png(ink=False)},
+            headers={"X-CSRF-Token": self.csrf()},
+        )
+        self.assertEqual(blank_return.status_code, 400)
 
     def test_editing_student_can_change_enrollment_and_keeps_history(self):
         self.login()
@@ -771,9 +843,7 @@ class LibraryAppTest(unittest.TestCase):
                 headers={"X-CSRF-Token": self.csrf()},
             )
             self.assertEqual(created.status_code, 201)
-        signature = "data:image/png;base64," + base64.b64encode(
-            b"\x89PNG\r\n\x1a\nvalid-test-image"
-        ).decode()
+        signature = TEST_SIGNATURE
         checkout = self.client.post(
             "/api/students/2026000001/books/checkout",
             json={"book_ids": ["portugues-2026-1", "redacao"], "signature": signature},
@@ -837,9 +907,7 @@ class LibraryAppTest(unittest.TestCase):
             json={"name": "Ana Silva", "enrollment": "2026000001", "grade": "1º", "course_id": self.informatics_course_id},
             headers={"X-CSRF-Token": self.csrf()},
         )
-        signature = "data:image/png;base64," + base64.b64encode(
-            b"\x89PNG\r\n\x1a\nvalid-test-image"
-        ).decode()
+        signature = TEST_SIGNATURE
         path = "/api/students/2026000001/books/checkout"
         headers = {"X-CSRF-Token": self.csrf()}
         body = {
@@ -880,15 +948,10 @@ class LibraryAppTest(unittest.TestCase):
             headers={"X-CSRF-Token": self.csrf()},
         )
         self.assertEqual(created.status_code, 201)
-        signature = "data:image/png;base64," + base64.b64encode(
-            b"\x89PNG\r\n\x1a\nvalid-test-image"
-        ).decode()
-        checkout = self.client.put(
-            "/api/students/2026000001/books/portugues-2026-1/checkout",
-            json={
-                "signature": signature,
-                "enrollment_confirmation": "2026000001",
-            },
+        signature = TEST_SIGNATURE
+        checkout = self.client.post(
+            "/api/students/2026000001/books/checkout",
+            json={"book_ids": ["portugues-2026-1"], "signature": signature},
             headers={"X-CSRF-Token": self.csrf()},
         )
         self.assertEqual(checkout.status_code, 200)
@@ -1416,21 +1479,16 @@ class LibraryAppTest(unittest.TestCase):
             json={"name": "Ana Silva", "enrollment": "2026000001", "grade": "1º", "course_id": self.informatics_course_id},
             headers={"X-CSRF-Token": token},
         )
-        signature = "data:image/png;base64," + base64.b64encode(
-            b"\x89PNG\r\n\x1a\nvalid-test-image"
-        ).decode()
+        signature = TEST_SIGNATURE
         returned_early = self.client.put(
             "/api/students/2026000001/books/portugues-2026-1/return",
             json={"signature": signature},
             headers={"X-CSRF-Token": self.csrf()},
         )
         self.assertEqual(returned_early.status_code, 409)
-        checkout = self.client.put(
-            "/api/students/2026000001/books/portugues-2026-1/checkout",
-            json={
-                "signature": signature,
-                "enrollment_confirmation": "2026000001",
-            },
+        checkout = self.client.post(
+            "/api/students/2026000001/books/checkout",
+            json={"book_ids": ["portugues-2026-1"], "signature": signature},
             headers={"X-CSRF-Token": self.csrf()},
         )
         self.assertEqual(checkout.status_code, 200)
@@ -1442,12 +1500,9 @@ class LibraryAppTest(unittest.TestCase):
         )
         self.assertEqual(returned.status_code, 200)
         self.assertEqual(returned.get_json()["books"][0]["return_by"], "servidor@ifc.edu.br")
-        previous_grade_math = self.client.put(
-            "/api/students/2026000001/books/matematica-2026-1/checkout",
-            json={
-                "signature": signature,
-                "enrollment_confirmation": "2026000001",
-            },
+        previous_grade_math = self.client.post(
+            "/api/students/2026000001/books/checkout",
+            json={"book_ids": ["matematica-2026-1"], "signature": signature},
             headers={"X-CSRF-Token": self.csrf()},
         )
         self.assertEqual(previous_grade_math.status_code, 200)
@@ -1479,15 +1534,10 @@ class LibraryAppTest(unittest.TestCase):
             json={"name": "Ana Silva", "enrollment": "2026000001", "grade": "1º", "course_id": self.informatics_course_id},
             headers={"X-CSRF-Token": token},
         )
-        signature = "data:image/png;base64," + base64.b64encode(
-            b"\x89PNG\r\n\x1a\nvalid-test-image"
-        ).decode()
-        self.client.put(
-            "/api/students/2026000001/books/historia/checkout",
-            json={
-                "signature": signature,
-                "enrollment_confirmation": "2026000001",
-            },
+        signature = TEST_SIGNATURE
+        self.client.post(
+            "/api/students/2026000001/books/checkout",
+            json={"book_ids": ["historia"], "signature": signature},
             headers={"X-CSRF-Token": self.csrf()},
         )
         database_path = self.app.config["DATABASE_PATH"]
@@ -1517,15 +1567,12 @@ class LibraryAppTest(unittest.TestCase):
         self.assertIsNone(historical_pending["checkout_signature"])
         self.assertNotIn("portugues-2026-1", {book["id"] for book in student_2027["books"]})
         self.assertIn("portugues-2027-2", {book["id"] for book in student_2027["books"]})
-        old_book_checkout = self.client.put(
-            "/api/students/2026000001/books/portugues-2026-1/checkout",
-            json={
-                "signature": signature,
-                "enrollment_confirmation": "2026000001",
-            },
+        old_book_checkout = self.client.post(
+            "/api/students/2026000001/books/checkout",
+            json={"book_ids": ["portugues-2026-1"], "signature": signature},
             headers={"X-CSRF-Token": self.csrf()},
         )
-        self.assertEqual(old_book_checkout.status_code, 409)
+        self.assertEqual(old_book_checkout.status_code, 404)
 
         returned = self.client.put(
             "/api/students/2026000001/books/historia/return",
@@ -1559,12 +1606,9 @@ class LibraryAppTest(unittest.TestCase):
             self.assertEqual(term["grade"], expected_grade)
             self.assertEqual(term["status"], "active")
             if year == 2028:
-                final_year_checkout = self.client.put(
-                    "/api/students/2026000001/books/ingles/checkout",
-                    json={
-                        "signature": signature,
-                        "enrollment_confirmation": "2026000001",
-                    },
+                final_year_checkout = self.client.post(
+                    "/api/students/2026000001/books/checkout",
+                    json={"book_ids": ["ingles"], "signature": signature},
                     headers={"X-CSRF-Token": self.csrf()},
                 )
                 self.assertEqual(final_year_checkout.status_code, 200)
@@ -1786,11 +1830,10 @@ class LibraryAppTest(unittest.TestCase):
         detail = repository.find_student(
             self.app.config["DATABASE_PATH"], student_data["enrollment"]
         )
-        signature_result = repository.record_signature(
+        signature_result = repository.record_signatures(
             self.app.config["DATABASE_PATH"],
             student_data["enrollment"],
-            detail["books"][0]["id"],
-            "checkout",
+            [detail["books"][0]["id"]],
             "assinatura-de-teste",
             "2026-01-10T12:00:00+00:00",
             "fabricio.bizotto@ifc.edu.br",
@@ -2052,20 +2095,7 @@ class LibraryAppTest(unittest.TestCase):
 
     @staticmethod
     def real_png_signature():
-        import struct
-        import zlib
-
-        def chunk(kind, data):
-            body = kind + data
-            return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body))
-
-        png = (
-            bytes([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
-            + chunk(b"IHDR", struct.pack(">IIBBBBB", 2, 1, 8, 2, 0, 0, 0))
-            + chunk(b"IDAT", zlib.compress(bytes([0, 0x23, 0x4B, 0x3A, 0xFF, 0xFF, 0xFF])))
-            + chunk(b"IEND", b"")
-        )
-        return "data:image/png;base64," + base64.b64encode(png).decode()
+        return TEST_SIGNATURE
 
     def test_year_terms_export_zips_one_pdf_per_student_grouped_by_course(self):
         import zipfile

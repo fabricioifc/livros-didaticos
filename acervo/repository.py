@@ -1241,11 +1241,10 @@ def list_school_years(database_path, current_year):
     return sorted(years, reverse=True)
 
 
-def record_signature(
+def record_return(
     database_path,
     enrollment,
     book_id,
-    action,
     signature,
     signed_at,
     actor_email,
@@ -1253,44 +1252,27 @@ def record_signature(
 ):
     with database(database_path) as db:
         book = db.execute(
-            """SELECT checkout_signature, return_signature, issue_year FROM book_signatures
+            """SELECT checkout_signature, return_signature FROM book_signatures
                WHERE enrollment = ? AND book_id = ?""",
             (enrollment, book_id),
         ).fetchone()
         if not book:
             return "book_not_found"
-        if action == "checkout" and book["issue_year"] != school_year:
-            return "wrong_school_year"
-        if action == "return" and not book["checkout_signature"]:
+        if not book["checkout_signature"]:
             return "checkout_required"
-        if action == "checkout" and book["checkout_signature"]:
-            return "already_checked_out"
-        if action == "return" and book["return_signature"]:
+        if book["return_signature"]:
             return "already_returned"
-        if action == "checkout":
-            db.execute(
-                """UPDATE book_signatures SET checkout_signature = ?, checkout_at = ?
-                   WHERE enrollment = ? AND book_id = ?""",
-                (signature, signed_at, enrollment, book_id),
-            )
-            db.execute(
-                """INSERT INTO book_signature_history
-                       (enrollment, book_id, school_year, action, signature, recorded_at, actor_email)
-                   VALUES (?, ?, ?, 'checkout', ?, ?, ?)""",
-                (enrollment, book_id, school_year, signature, signed_at, actor_email),
-            )
-        else:
-            db.execute(
-                """UPDATE book_signatures SET return_signature = ?, return_at = ?, return_by = ?
-                   WHERE enrollment = ? AND book_id = ?""",
-                (signature, signed_at, actor_email, enrollment, book_id),
-            )
-            db.execute(
-                """INSERT INTO book_signature_history
-                       (enrollment, book_id, school_year, action, signature, recorded_at, actor_email)
-                   VALUES (?, ?, ?, 'return', ?, ?, ?)""",
-                (enrollment, book_id, school_year, signature, signed_at, actor_email),
-            )
+        db.execute(
+            """UPDATE book_signatures SET return_signature = ?, return_at = ?, return_by = ?
+               WHERE enrollment = ? AND book_id = ?""",
+            (signature, signed_at, actor_email, enrollment, book_id),
+        )
+        db.execute(
+            """INSERT INTO book_signature_history
+                   (enrollment, book_id, school_year, action, signature, recorded_at, actor_email)
+               VALUES (?, ?, ?, 'return', ?, ?, ?)""",
+            (enrollment, book_id, school_year, signature, signed_at, actor_email),
+        )
     return None
 
 
