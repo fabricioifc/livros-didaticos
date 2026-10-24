@@ -11,6 +11,8 @@ export const state = {
   studentStatus: "active",
   studentsPage: 1,
   currentStudent: null,
+  // "records": consulta do cadastro; "loans": retirada e devolução.
+  detailMode: "records",
   selectedCheckoutBooks: new Set(),
   editingStudent: null,
   books: [],

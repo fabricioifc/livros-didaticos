@@ -5,6 +5,7 @@ import { bookCounts, escapeHtml } from "./utils.js";
 import { courseColorClass, renderCourseFilters, renderStudentCourseOptions } from "./courses.js";
 import { renderStudentDetail } from "./student-detail.js";
 import { renderDashboard } from "./dashboard.js";
+import { renderLoanResults } from "./loans.js";
 
 export async function refreshStudents() {
   const courseData = await api("/api/courses");
@@ -102,6 +103,7 @@ export function renderStudents() {
   $("#nav-student-count").textContent = String(activeStudents.length);
   $("#students-empty").hidden = list.length > 0;
   renderDashboard();
+  if (state.view === "loans") renderLoanResults();
 }
 
 export function openNewStudent() {

@@ -60,6 +60,7 @@
       <div class="nav-section-label">GESTÃO</div>
       <nav class="main-nav" aria-label="Navegação principal">
         <button class="nav-item is-active" data-view="dashboard"><span class="nav-icon nav-icon--grid"></span> Visão geral</button>
+        <button class="nav-item" data-view="loans"><svg class="nav-icon nav-icon--svg" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/><path d="m9 10 2 2 4-4"/></svg> Entregas</button>
         <button class="nav-item" data-view="students"><span class="nav-icon nav-icon--users"></span> Estudantes <span class="nav-count" id="nav-student-count">0</span></button>
         <button class="nav-item" data-view="users" id="users-nav-item" hidden><svg class="nav-icon nav-icon--svg" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 5 6v5c0 4.5 3 8.3 7 10 4-1.7 7-5.5 7-10V6l-7-3Z"/><path d="m9 12 2 2 4-4"/></svg> Administração</button>
         <button class="nav-item" data-view="settings"><span class="nav-icon nav-icon--settings"></span> Configurações</button>
@@ -117,6 +118,15 @@
           </article>
         </section>
         <footer class="app-footer"><span>Acervo IFC · Campus Fraiburgo · <a class="privacy-link" href="{{ url_for('main.privacy_notice') }}" target="_blank" rel="noopener">Aviso de Privacidade</a></span><span>Termo de compromisso · <span class="school-year-footer"></span></span></footer>
+      </section>
+
+      <section class="view view--loans" id="loans-view" hidden>
+        <div class="page-heading"><div><span class="eyebrow">RETIRADA E DEVOLUÇÃO</span><h1>Entregas</h1><p>Pesquise o estudante pela matrícula ou pelo nome para registrar a retirada ou a devolução dos livros.</p></div></div>
+        <div class="content-card loans-card">
+          <label class="search-box loans-search"><span class="search-icon"></span><input id="loans-search" type="search" placeholder="Matrícula ou nome do estudante" autocomplete="off" aria-label="Buscar estudante por matrícula ou nome" aria-describedby="loans-hint"></label>
+          <p class="loans-hint" id="loans-hint" aria-live="polite">Digite ao menos 2 letras do nome ou números da matrícula.</p>
+          <ul class="loans-results" id="loans-results" aria-label="Estudantes encontrados"></ul>
+        </div>
       </section>
 
       <section class="view view--students" id="students-view" hidden>
@@ -273,7 +283,7 @@
   </dialog>
 
   <dialog id="student-detail-dialog" class="dialog dialog--detail">
-    <div class="dialog-heading detail-heading"><div class="detail-heading__student"><span class="eyebrow">TERMO DE COMPROMISSO · <span id="detail-school-year"></span></span><h2 id="detail-name"></h2><p id="detail-meta"></p><p class="archive-info" id="detail-archive-info" hidden></p><div class="detail-year-control"><label for="detail-year-select">Ciclo</label><select class="text-input detail-year-select" id="detail-year-select" aria-label="Selecionar ciclo letivo"></select></div></div><div class="detail-header-actions"><button class="text-button" id="edit-student-button" type="button">Editar cadastro</button><button class="dialog-close" type="button" data-close="student-detail-dialog" aria-label="Fechar">×</button></div></div>
+    <div class="dialog-heading detail-heading"><div class="detail-heading__student"><span class="eyebrow"><span id="detail-mode-label">CADASTRO</span> · TERMO DE COMPROMISSO · <span id="detail-school-year"></span></span><h2 id="detail-name"></h2><p id="detail-meta"></p><p class="archive-info" id="detail-archive-info" hidden></p><div class="detail-year-control"><label for="detail-year-select">Ciclo</label><select class="text-input detail-year-select" id="detail-year-select" aria-label="Selecionar ciclo letivo"></select></div></div><div class="detail-header-actions"><button class="text-button" id="open-loans-button" type="button">Entrega e devolução <span>→</span></button><button class="text-button" id="edit-student-button" type="button">Editar cadastro</button><button class="dialog-close" type="button" data-close="student-detail-dialog" aria-label="Fechar">×</button></div></div>
     <div class="detail-progress"><div><span id="detail-progress-label">0 de 15 títulos entregues</span><span><button class="text-button" id="export-student-terms-button" type="button" hidden>Exportar todos os termos <span>↗</span></button> <button class="text-button" id="export-term-button">Exportar PDF <span>↗</span></button></span></div><div class="progress-track"><span id="detail-progress-bar"></span></div></div>
     <section id="checkout-selection-bar" class="checkout-selection-bar" hidden>
       <div class="checkout-selection-summary"><label class="book-select checkout-select-all"><input type="checkbox" id="checkout-select-all"><span id="checkout-select-all-label">Selecionar todos</span></label><span id="checkout-selection-count">0 selecionados</span></div>

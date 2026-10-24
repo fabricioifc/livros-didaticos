@@ -269,6 +269,20 @@ th:first-child, td:first-child { padding-left: 2px; }
 .button-group > .button:not(:last-child) { border-top-right-radius: 0; border-bottom-right-radius: 0; }
 .button-group > .button:hover { position: relative; z-index: 1; }
 .all-students-card { padding: 0 20px; }
+.loans-card { padding: 22px 20px 12px; }
+.loans-search { width: 100%; max-width: 560px; height: 44px; }
+.loans-search input { font-size: 13px; }
+.loans-hint { margin: 10px 2px 14px; color: #8b958d; font-size: 10px; }
+.loans-results { margin: 0; padding: 0; list-style: none; border-top: 1px solid #eff1ef; }
+.loans-results li + li { border-top: 1px solid #eff1ef; }
+.loan-result { width: 100%; min-height: 62px; padding: 10px 8px; border: 0; border-radius: 6px; display: grid; grid-template-columns: 27px minmax(160px, 1.4fr) auto minmax(150px, 1fr) 20px; align-items: center; gap: 14px; background: transparent; color: inherit; text-align: left; }
+.loan-result:hover, .loan-result:focus-visible { background: #f6f9f6; }
+.loan-result__identity { display: grid; gap: 3px; min-width: 0; }
+.loan-result__identity strong { overflow: hidden; color: #2f3b33; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.loan-result__identity .mono-cell { color: #7d8781; font-size: 10px; }
+.loan-result__tags { display: flex; align-items: center; gap: 6px; }
+.loan-result__progress { color: #7d8781; font-size: 10px; }
+.loan-result__open { color: #718079; font-size: 17px; }
 .table-toolbar--students { margin-top: 0; padding: 15px 0 13px; }
 .all-students-card th { height: 37px; }
 .user-management-card { margin-bottom: 18px; padding: 20px; }
@@ -534,6 +548,10 @@ dialog[open].dialog--detail { display: flex; flex-direction: column; }
   .filter-chip { padding: 0 7px; flex: 0 0 auto; font-size: 8px; }
   .table-scroll table { min-width: 690px; }
   .all-students-card { padding: 0 13px; }
+  .loans-card { padding: 16px 13px 8px; }
+  .loan-result { grid-template-columns: 27px minmax(0, 1fr) 20px; gap: 4px 10px; }
+  .loan-result__tags, .loan-result__progress { grid-column: 2; }
+  .loan-result__open { grid-column: 3; grid-row: 1; }
   .table-toolbar--students { padding-top: 13px; }
   .student-filter-groups { width: 100%; align-items: flex-start; flex-direction: column; gap: 7px; }
   .student-filter-groups .grade-filter + .grade-filter { border-left: 0; padding-left: 0; }
@@ -699,6 +717,10 @@ dialog[open].dialog--detail { display: flex; flex-direction: column; }
 :root[data-theme="dark"] .book-app-3 { --course-color: #776cad; --course-bg: #1b1923; --course-text: #988fbd; }
 :root[data-theme="dark"] #books-table tr.is-inactive td:first-child { color: #7a827c; }
 :root[data-theme="dark"] .row-action { color: #939e99; }
+:root[data-theme="dark"] .loans-results, :root[data-theme="dark"] .loans-results li + li { border-color: #2f322f; }
+:root[data-theme="dark"] .loan-result:hover, :root[data-theme="dark"] .loan-result:focus-visible { background: #1a201c; }
+:root[data-theme="dark"] .loan-result__identity strong { color: #d5ddd7; }
+:root[data-theme="dark"] .loans-hint, :root[data-theme="dark"] .loan-result__progress, :root[data-theme="dark"] .loan-result__identity .mono-cell { color: #858e87; }
 :root[data-theme="dark"] .row-action:hover { background: #1a201c; color: #9ec7ab; }
 :root[data-theme="dark"] .table-footer { border-top: 1px solid #2f322f; color: #6e7870; }
 :root[data-theme="dark"] .pagination button { border-color: #333933; background: #161b17; color: #adb8b1; }

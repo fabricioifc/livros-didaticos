@@ -4,6 +4,7 @@ import { bindAuth, prepareLogin, showApplication } from "./auth.js";
 import { bindNavigation } from "./navigation.js";
 import { bindStudents, openNewStudent } from "./students.js";
 import { bindStudentDetail, openStudent } from "./student-detail.js";
+import { bindLoans } from "./loans.js";
 import { bindHistory, openBookHistory } from "./history.js";
 import { bindSignature, openSignature } from "./signature.js";
 import { bindPrint } from "./print.js";
@@ -16,6 +17,7 @@ function bindGlobalActions() {
     const target = event.target.closest("[data-action]");
     if (!target) return;
     if (target.dataset.action === "detail") openStudent(target.dataset.enrollment);
+    if (target.dataset.action === "loan") openStudent(target.dataset.enrollment, "loans");
     if (target.dataset.action === "add-student") openNewStudent();
     if (target.dataset.action === "sign-return") openSignature(target.dataset.book, "return");
     if (target.dataset.action === "book-history") openBookHistory(target.dataset.book);
@@ -30,6 +32,7 @@ async function initialize() {
   bindNavigation();
   bindStudents();
   bindStudentDetail();
+  bindLoans();
   bindHistory();
   bindSignature();
   bindPrint();

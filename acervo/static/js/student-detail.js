@@ -6,9 +6,10 @@ import { renderStudentCourseOptions } from "./courses.js";
 import { refreshStudents } from "./students.js";
 import { openSignature } from "./signature.js";
 
-export async function openStudent(enrollment) {
+export async function openStudent(enrollment, mode = "records") {
   const student = state.students.find((item) => item.enrollment === enrollment);
   if (!student) return;
+  state.detailMode = mode;
   try {
     const record = await api(`/api/students/${encodeURIComponent(enrollment)}`);
     state.currentStudent = { ...student, ...record };
@@ -74,16 +75,19 @@ function renderSelectAll(eligible) {
 export function renderStudentDetail() {
   const student = state.currentStudent;
   const counts = bookCounts(student);
+  const loanMode = state.detailMode === "loans";
+  $("#detail-mode-label").textContent = loanMode ? "ENTREGA E DEVOLUÇÃO" : "CADASTRO";
+  $("#open-loans-button").hidden = loanMode;
   $("#detail-school-year").textContent = String(student.school_year);
   const yearSelect = $("#detail-year-select");
   yearSelect.innerHTML = student.years.map((year) =>
     `<option value="${year.school_year}">${year.school_year}${year.status === "completed" ? " · concluído" : ""}</option>`
   ).join("");
   yearSelect.value = String(student.school_year);
-  $("#edit-student-button").hidden = student.is_archived || student.school_year !== state.schoolYear || student.status !== "active";
-  $("#archive-student-button").hidden = student.is_archived;
-  $("#reactivate-student-button").hidden = !student.is_archived;
-  $("#delete-student-button").hidden = !state.isAdmin;
+  $("#edit-student-button").hidden = loanMode || student.is_archived || student.school_year !== state.schoolYear || student.status !== "active";
+  $("#archive-student-button").hidden = loanMode || student.is_archived;
+  $("#reactivate-student-button").hidden = loanMode || !student.is_archived;
+  $("#delete-student-button").hidden = loanMode || !state.isAdmin;
   $("#delete-student-button").disabled = student.has_loan_history;
   $("#delete-student-button").title = student.has_loan_history
     ? "Não é possível excluir um cadastro com empréstimos, devoluções ou histórico."
@@ -100,8 +104,8 @@ export function renderStudentDetail() {
     : `Matrícula ${student.enrollment} · ${student.course_name} · ${student.grade} ano`;
   $("#detail-progress-label").textContent = `${counts.issued} de ${counts.total} títulos entregues`;
   $("#detail-progress-bar").style.width = `${counts.total ? Math.round((counts.issued / counts.total) * 100) : 0}%`;
-  const canCheckout = canCheckoutCurrentCycle(student);
-  const eligible = eligibleCheckoutBooks(student);
+  const canCheckout = loanMode && canCheckoutCurrentCycle(student);
+  const eligible = loanMode ? eligibleCheckoutBooks(student) : [];
   const eligibleIds = new Set(eligible.map((book) => book.id));
   state.selectedCheckoutBooks.forEach((bookId) => {
     if (!eligibleIds.has(bookId)) state.selectedCheckoutBooks.delete(bookId);
@@ -121,6 +125,8 @@ export function renderStudentDetail() {
     const returnSignature = book.return_signature ? `<img class="signature-thumb" src="${escapeHtml(book.return_signature)}" alt="Assinatura do servidor">` : "";
     const button = returned
       ? '<span class="book-done">Concluído <span>✓</span></span>'
+      : !loanMode
+        ? ""
       : issued
         ? `<button class="book-action book-action--return" data-action="sign-return" data-book="${escapeHtml(book.id)}"><span class="book-action-icon">↩</span> Registrar devolução</button>`
         : eligibleIds.has(book.id)
@@ -228,6 +234,11 @@ export function bindStudentDetail() {
     if (!checkbox) return;
     if (checkbox.checked) state.selectedCheckoutBooks.add(checkbox.dataset.book);
     else state.selectedCheckoutBooks.delete(checkbox.dataset.book);
+    renderStudentDetail();
+  });
+  $("#open-loans-button").addEventListener("click", () => {
+    state.detailMode = "loans";
+    state.selectedCheckoutBooks.clear();
     renderStudentDetail();
   });
   $("#checkout-select-all").addEventListener("change", (event) => {

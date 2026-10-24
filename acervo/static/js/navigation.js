@@ -1,6 +1,7 @@
 import { $, $$, elements } from "./dom.js";
 import { state } from "./state.js";
 import { loadBackups, loadManagedBooks, loadManagedCourses, loadManagedUsers } from "./admin.js";
+import { focusLoanSearch } from "./loans.js";
 
 export function setMenuExpanded(expanded) {
   const isMobile = window.matchMedia("(max-width: 760px)").matches;
@@ -31,17 +32,20 @@ export function setView(view) {
   if (view === "users" && !state.isAdmin) return;
   state.view = view;
   $("#dashboard-view").hidden = view !== "dashboard";
+  $("#loans-view").hidden = view !== "loans";
   $("#students-view").hidden = view !== "students";
   $("#users-view").hidden = view !== "users";
   $("#settings-view").hidden = view !== "settings";
   $("#breadcrumb-current").textContent = {
     dashboard: "Visão geral",
+    loans: "Entregas",
     students: "Estudantes",
     users: "Administração",
     settings: "Configurações",
   }[view] || "Visão geral";
   $$(".nav-item").forEach((button) => button.classList.toggle("is-active", button.dataset.view === view));
   if (window.matchMedia("(max-width: 760px)").matches) setMenuExpanded(false);
+  if (view === "loans") focusLoanSearch();
   if (view === "users") {
     setAdminTab("courses");
     loadManagedUsers();

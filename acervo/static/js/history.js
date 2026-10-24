@@ -56,8 +56,10 @@ async function refreshBookHistory() {
 function updateHistoryCorrectionActions() {
   const book = state.historyBook;
   if (!book) return;
-  $("#cancel-checkout-button").hidden = !book.checkout_signature || Boolean(book.return_signature);
-  $("#cancel-return-button").hidden = !book.return_signature;
+  // Correções fazem parte do fluxo de entrega; no cadastro o histórico é só consulta.
+  const loanMode = state.detailMode === "loans";
+  $("#cancel-checkout-button").hidden = !loanMode || !book.checkout_signature || Boolean(book.return_signature);
+  $("#cancel-return-button").hidden = !loanMode || !book.return_signature;
   const canCancel = !$("#cancel-checkout-button").hidden || !$("#cancel-return-button").hidden;
   $("#history-correction").hidden = !canCancel;
   const notice = book.checkout_signature && book.return_signature
