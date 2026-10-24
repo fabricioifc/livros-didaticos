@@ -37,7 +37,7 @@ export function setView(view) {
   $("#settings-view").hidden = view !== "settings";
   $("#breadcrumb-current").textContent = {
     dashboard: "Visão geral",
-    loans: "Entregas",
+    loans: "Empréstimos",
     users: "Administração",
     settings: "Configurações",
   }[view] || "Visão geral";

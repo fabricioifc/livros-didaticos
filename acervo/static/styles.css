@@ -93,6 +93,11 @@ button { cursor: pointer; }
 .nav-item { height: 41px; width: 100%; padding: 0 11px; border: 0; border-radius: 6px; display: flex; align-items: center; gap: 11px; background: transparent; text-align: left; color: #68736b; font-size: 12px; font-weight: 500; }
 .nav-item:hover { background: #f6f8f6; }
 .nav-item.is-active { background: #edf4ef; color: #235239; font-weight: 600; }
+/* Empréstimos é a tela principal: fica acima da gestão, com destaque próprio. */
+.main-nav--featured { margin-bottom: 22px; }
+.nav-item--featured { height: 45px; border: 1px solid #cfe2d5; background: #f4f9f5; color: #235239; font-weight: 600; }
+.nav-item--featured:hover { border-color: #b5d2bf; background: #eaf4ed; }
+.nav-item--featured.is-active { border-color: var(--green); background: var(--green); color: #fff; }
 .nav-count { margin-left: auto; min-width: 21px; height: 20px; display: grid; place-items: center; border-radius: 5px; background: #f0f3f1; color: #7b867e; font-size: 10px; }
 .nav-item.is-active .nav-count { background: #dfece3; color: #3c714d; }
 .nav-icon { position: relative; width: 17px; height: 17px; display: inline-block; color: currentColor; opacity: .9; }
@@ -380,7 +385,9 @@ dialog[open].dialog--detail { display: flex; flex-direction: column; }
 .detail-header-actions { display: flex; align-items: center; gap: 14px; }
 .detail-heading h2 { margin: 4px 0 2px; font-size: 17px; }
 .detail-heading p { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.detail-year-control { margin-top: 7px; display: flex; align-items: center; gap: 7px; }
+.detail-meta-row { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.detail-meta-row p { min-width: 0; }
+.detail-year-control { flex: 0 0 auto; display: flex; align-items: center; gap: 7px; }
 .detail-year-control label { color: #89938c; font-size: 9px; }
 .detail-year-select { width: auto; min-width: 90px; height: 29px; padding: 3px 24px 3px 7px; font-size: 10px; }
 .detail-progress { padding: 12px 25px 14px; border-top: 1px solid #f0f2f0; border-bottom: 1px solid #eff1ef; background: #fbfcfb; }
@@ -402,6 +409,9 @@ dialog[open].dialog--detail { display: flex; flex-direction: column; }
 .signature-cell img { width: 58px; height: 23px; object-fit: contain; }
 .signature-cell small, .signature-placeholder-text { color: #a6aea8; font-size: 8px; }
 .book-action-cell { display: grid; justify-items: end; gap: 4px; text-align: right; }
+/* Na entrega, as assinaturas ficam no histórico; a linha mostra só o livro e a ação. */
+.dialog--loan-mode .book-signatures { display: none; }
+.dialog--loan-mode .book-row { grid-template-columns: minmax(0, 1fr) auto; }
 .book-action { max-width: 100%; min-height: 29px; padding: 0 9px; border: 1px solid #e5ede6; border-radius: 5px; background: #fff; color: #477451; font-size: 9px; font-weight: 600; white-space: normal; }
 .book-action:hover { background: #f4f8f4; border-color: #d6e4d8; }
 .book-action--return { color: #9c784b; border-color: #eee7d8; }
@@ -578,7 +588,10 @@ dialog[open].dialog--detail { display: flex; flex-direction: column; }
   .detail-footer { align-items: flex-start; flex-direction: column; gap: 8px; padding-top: 8px; padding-bottom: 8px; }
   .detail-footer-actions { width: 100%; justify-content: flex-end; flex-wrap: wrap; }
   .detail-footer-actions .button { min-height: 28px; padding: 0 8px; font-size: 8px; }
-  .detail-year-control { margin-top: 4px; gap: 5px; }
+  .detail-meta-row { gap: 8px; }
+  .detail-year-control { gap: 5px; }
+  .dialog--loan-mode .book-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .dialog--loan-mode .book-info, .dialog--loan-mode .book-action-cell { grid-column: auto; grid-row: auto; }
   .detail-year-control label { font-size: 8px; }
   .detail-year-select { min-width: 75px; height: 25px; padding: 2px 20px 2px 6px; font-size: 9px; }
   .detail-progress { padding: 8px 12px 9px; }
@@ -641,6 +654,9 @@ dialog[open].dialog--detail { display: flex; flex-direction: column; }
 :root[data-theme="dark"] .nav-item { color: #9ea6a0; }
 :root[data-theme="dark"] .nav-item:hover { background: #191e1b; }
 :root[data-theme="dark"] .nav-item.is-active { background: #1c221d; color: #bcdecc; }
+:root[data-theme="dark"] .nav-item--featured { border-color: #2f4537; background: #18211b; color: #bcdecc; }
+:root[data-theme="dark"] .nav-item--featured:hover { border-color: #3d5a47; background: #1c2820; }
+:root[data-theme="dark"] .nav-item--featured.is-active { border-color: var(--green); background: var(--green); color: #fff; }
 :root[data-theme="dark"] .nav-count { background: #1b211d; color: #8e9690; }
 :root[data-theme="dark"] .nav-item.is-active .nav-count { background: #202722; color: #a2c9af; }
 :root[data-theme="dark"] .sidebar-credit { color: #828b84; }

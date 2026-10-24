@@ -1,7 +1,7 @@
 import { $, $$, elements } from "./dom.js";
 import { state } from "./state.js";
 import { api, notify } from "./api.js";
-import { setMenuExpanded } from "./navigation.js";
+import { setMenuExpanded, setView } from "./navigation.js";
 import { refreshStudents } from "./students.js";
 
 const GOOGLE_LOGIN_ERRORS = {
@@ -56,6 +56,8 @@ export function showApplication(email, isAdmin = false) {
   const today = new Date();
   $("#today-weekday").textContent = new Intl.DateTimeFormat("pt-BR", { weekday: "long" }).format(today).toUpperCase();
   $("#today-date").textContent = new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "long" }).format(today).toUpperCase();
+  // Empréstimos é a tela inicial, inclusive ao entrar de novo após sair.
+  setView("loans");
   refreshStudents();
 }
 

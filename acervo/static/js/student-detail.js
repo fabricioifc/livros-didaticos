@@ -77,6 +77,7 @@ export function renderStudentDetail() {
   const counts = bookCounts(student);
   const loanMode = state.detailMode === "loans";
   $("#detail-mode-label").textContent = loanMode ? "ENTREGA E DEVOLUÇÃO" : "CADASTRO";
+  elements.detailDialog.classList.toggle("dialog--loan-mode", loanMode);
   $("#open-loans-button").hidden = loanMode;
   $("#detail-school-year").textContent = String(student.school_year);
   const yearSelect = $("#detail-year-select");

@@ -5,7 +5,7 @@ export const state = {
   users: [],
   courses: [],
   students: [],
-  view: "dashboard",
+  view: "loans",
   grade: "all",
   course: "all",
   studentStatus: "active",
