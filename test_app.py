@@ -475,7 +475,7 @@ class LibraryAppTest(unittest.TestCase):
         self.assertEqual(users, 1)
         self.assertEqual(book_history, 0)
 
-    def test_checkout_requires_the_selected_students_enrollment(self):
+    def test_checkout_does_not_require_enrollment_confirmation(self):
         self.login()
         created = self.client.post(
             "/api/students",
@@ -487,30 +487,86 @@ class LibraryAppTest(unittest.TestCase):
             b"\x89PNG\r\n\x1a\nvalid-test-image"
         ).decode()
 
-        missing_enrollment = self.client.put(
+        checked_out = self.client.put(
             "/api/students/2026000001/books/portugues-2026-1/checkout",
             json={"signature": signature},
             headers={"X-CSRF-Token": self.csrf()},
         )
-        self.assertEqual(missing_enrollment.status_code, 400)
-        mismatched_enrollment = self.client.put(
-            "/api/students/2026000001/books/portugues-2026-1/checkout",
-            json={"signature": signature, "enrollment_confirmation": "2026000002"},
-            headers={"X-CSRF-Token": self.csrf()},
-        )
-        self.assertEqual(mismatched_enrollment.status_code, 400)
-        checked_out = self.client.put(
-            "/api/students/2026000001/books/portugues-2026-1/checkout",
-            json={"signature": signature, "enrollment_confirmation": "2026000001"},
-            headers={"X-CSRF-Token": self.csrf()},
-        )
         self.assertEqual(checked_out.status_code, 200)
-        second_checkout = self.client.put(
-            "/api/students/2026000001/books/matematica-2026-1/checkout",
-            json={"signature": signature, "enrollment_confirmation": "2026000001"},
+        batch_checkout = self.client.post(
+            "/api/students/2026000001/books/checkout",
+            json={"book_ids": ["matematica-2026-1", "redacao"], "signature": signature},
             headers={"X-CSRF-Token": self.csrf()},
         )
-        self.assertEqual(second_checkout.status_code, 200)
+        self.assertEqual(batch_checkout.status_code, 200)
+
+    def test_editing_student_can_change_enrollment_and_keeps_history(self):
+        self.login()
+        for enrollment, name in (("2026000001", "Ana Silva"), ("2026000002", "Bruno Lima")):
+            created = self.client.post(
+                "/api/students",
+                json={"name": name, "enrollment": enrollment, "grade": "1º", "course_id": self.informatics_course_id},
+                headers={"X-CSRF-Token": self.csrf()},
+            )
+            self.assertEqual(created.status_code, 201)
+        signature = "data:image/png;base64," + base64.b64encode(
+            b"\x89PNG\r\n\x1a\nvalid-test-image"
+        ).decode()
+        checkout = self.client.post(
+            "/api/students/2026000001/books/checkout",
+            json={"book_ids": ["portugues-2026-1", "redacao"], "signature": signature},
+            headers={"X-CSRF-Token": self.csrf()},
+        )
+        self.assertEqual(checkout.status_code, 200)
+        body = {"name": "Ana Silva", "grade": "1º", "course_id": self.informatics_course_id}
+
+        for invalid in ("123", "20260000AB", 2026000009):
+            with self.subTest(enrollment=invalid):
+                response = self.client.put(
+                    "/api/students/2026000001",
+                    json={**body, "enrollment": invalid},
+                    headers={"X-CSRF-Token": self.csrf()},
+                )
+                self.assertEqual(response.status_code, 400)
+        taken = self.client.put(
+            "/api/students/2026000001",
+            json={**body, "enrollment": "2026000002"},
+            headers={"X-CSRF-Token": self.csrf()},
+        )
+        self.assertEqual(taken.status_code, 409)
+        self.assertIn("Já existe um estudante", taken.get_json()["error"])
+        self.assertEqual(self.client.get("/api/students/2026000002").get_json()["name"], "Bruno Lima")
+
+        renamed = self.client.put(
+            "/api/students/2026000001",
+            json={**body, "enrollment": " 2026000099 "},
+            headers={"X-CSRF-Token": self.csrf()},
+        )
+
+        self.assertEqual(renamed.status_code, 200, renamed.get_json())
+        self.assertEqual(renamed.get_json()["enrollment"], "2026000099")
+        self.assertEqual(self.client.get("/api/students/2026000001").status_code, 404)
+        student = self.client.get("/api/students/2026000099").get_json()
+        issued = {book["id"] for book in student["books"] if book["checkout_signature"]}
+        self.assertEqual(issued, {"portugues-2026-1", "redacao"})
+        history = self.client.get("/api/students/2026000099/books/redacao/history")
+        self.assertEqual(history.status_code, 200)
+        self.assertTrue(history.get_json()["history"])
+        with closing(sqlite3.connect(self.app.config["DATABASE_PATH"])) as db:
+            self.assertEqual(db.execute("PRAGMA foreign_key_check").fetchall(), [])
+            for table in ("book_signatures", "book_signature_history", "student_years", "student_year_books"):
+                self.assertEqual(
+                    db.execute(f"SELECT COUNT(*) FROM {table} WHERE enrollment = '2026000001'").fetchone()[0],
+                    0,
+                    table,
+                )
+        unchanged = self.client.put(
+            "/api/students/2026000099",
+            json=body,
+            headers={"X-CSRF-Token": self.csrf()},
+        )
+        self.assertEqual(unchanged.status_code, 200)
+        self.assertEqual(unchanged.get_json()["enrollment"], "2026000099")
 
     def test_multiple_books_can_be_checked_out_with_one_signature_atomically(self):
         self.login()
@@ -1504,8 +1560,9 @@ class LibraryAppTest(unittest.TestCase):
         self.assertRegex(page.data, rb'"/static/js/pwa\.js": "/static/js/pwa\.js\?v=\d+"')
         self.assertRegex(page.data, rb'"/static/js/dashboard\.js": "/static/js/dashboard\.js\?v=\d+"')
         self.assertRegex(page.data, rb'"/static/js/api\.js": "/static/js/api\.js\?v=\d+"')
-        self.assertIn(b"Livros selecionados", page.data)
+        self.assertNotIn(b'id="enrollment-confirmation-dialog"', page.data)
         self.assertIn(b"signature-book", page.data)
+        self.assertIn(b'id="checkout-select-all"', page.data)
         self.assertIn(b'data-student-status="completed"', page.data)
         self.assertIn(b'data-student-status="archived"', page.data)
         self.assertIn(b'id="student-archive-form"', page.data)

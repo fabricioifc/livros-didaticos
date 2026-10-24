@@ -40,12 +40,35 @@ function editCurrentStudent() {
   state.editingStudent = student;
   $("#student-name").value = student.name;
   $("#student-enrollment").value = student.enrollment;
-  $("#student-enrollment").readOnly = true;
   $("#student-grade").value = student.grade;
   renderStudentCourseOptions(student.course_id);
   $("#student-dialog-title").textContent = "Editar estudante";
   $("#student-submit").innerHTML = "Salvar alterações <span>→</span>";
   elements.studentDialog.showModal();
+}
+
+function canCheckoutCurrentCycle(student) {
+  return !student.is_archived && student.school_year === state.schoolYear && student.status === "active";
+}
+
+// Livros que ainda podem ser entregues no ciclo atual: não entregues, não
+// devolvidos e emitidos neste ciclo (empréstimos de ciclos anteriores ficam de fora).
+function eligibleCheckoutBooks(student) {
+  if (!canCheckoutCurrentCycle(student)) return [];
+  return student.books.filter((book) =>
+    !book.checkout_signature && !book.return_signature && book.issue_year === student.school_year
+  );
+}
+
+function renderSelectAll(eligible) {
+  const selectAll = $("#checkout-select-all");
+  const selected = eligible.filter((book) => state.selectedCheckoutBooks.has(book.id)).length;
+  selectAll.disabled = eligible.length === 0;
+  selectAll.checked = eligible.length > 0 && selected === eligible.length;
+  selectAll.indeterminate = selected > 0 && selected < eligible.length;
+  $("#checkout-select-all-label").textContent = eligible.length
+    ? `Selecionar todos (${eligible.length})`
+    : "Nenhum livro disponível para entrega";
 }
 
 export function renderStudentDetail() {
@@ -77,8 +100,14 @@ export function renderStudentDetail() {
     : `Matrícula ${student.enrollment} · ${student.course_name} · ${student.grade} ano`;
   $("#detail-progress-label").textContent = `${counts.issued} de ${counts.total} títulos entregues`;
   $("#detail-progress-bar").style.width = `${counts.total ? Math.round((counts.issued / counts.total) * 100) : 0}%`;
-  const canCheckout = !student.is_archived && student.school_year === state.schoolYear && student.status === "active";
+  const canCheckout = canCheckoutCurrentCycle(student);
+  const eligible = eligibleCheckoutBooks(student);
+  const eligibleIds = new Set(eligible.map((book) => book.id));
+  state.selectedCheckoutBooks.forEach((bookId) => {
+    if (!eligibleIds.has(bookId)) state.selectedCheckoutBooks.delete(bookId);
+  });
   $("#checkout-selection-bar").hidden = !canCheckout;
+  renderSelectAll(eligible);
   $("#checkout-selection-count").textContent = `${state.selectedCheckoutBooks.size} selecionado${state.selectedCheckoutBooks.size === 1 ? "" : "s"}`;
   $("#checkout-selected-button").disabled = state.selectedCheckoutBooks.size === 0;
   $("#book-list").innerHTML = student.books.map((book) => {
@@ -94,7 +123,7 @@ export function renderStudentDetail() {
       ? '<span class="book-done">Concluído <span>✓</span></span>'
       : issued
         ? `<button class="book-action book-action--return" data-action="sign-return" data-book="${escapeHtml(book.id)}"><span class="book-action-icon">↩</span> Registrar devolução</button>`
-        : canCheckout && book.issue_year === student.school_year
+        : eligibleIds.has(book.id)
           ? `<label class="book-select"><input type="checkbox" data-action="select-checkout-book" data-book="${escapeHtml(book.id)}" ${state.selectedCheckoutBooks.has(book.id) ? "checked" : ""}><span>Selecionar para entrega</span></label>`
           : '<span class="book-done">Somente consulta</span>';
     return `<article class="book-row">
@@ -118,20 +147,12 @@ export async function refreshCurrentStudent() {
   renderStudentDetail();
 }
 
-function openCheckoutConfirmation() {
-  const books = state.currentStudent.books.filter((book) =>
-    state.selectedCheckoutBooks.has(book.id)
-  );
-  if (!books.length) return;
-  state.signatureBooks = books;
-  $("#checkout-student-name").textContent = state.currentStudent.name;
-  $("#checkout-student-enrollment").textContent = state.currentStudent.enrollment;
-  $("#checkout-selected-books").innerHTML = books
-    .map((book) => `<li>${escapeHtml(book.title)}</li>`)
-    .join("");
-  $("#enrollment-confirmation-input").value = "";
-  elements.enrollmentDialog.showModal();
-  $("#enrollment-confirmation-input").focus();
+function openCheckoutSignature() {
+  const bookIds = eligibleCheckoutBooks(state.currentStudent)
+    .filter((book) => state.selectedCheckoutBooks.has(book.id))
+    .map((book) => book.id);
+  if (!bookIds.length) return;
+  openSignature(null, "checkout", bookIds);
 }
 
 export function bindStudentDetail() {
@@ -202,17 +223,6 @@ export function bindStudentDetail() {
     }
   });
 
-  $("#enrollment-confirmation-form").addEventListener("submit", (event) => {
-    event.preventDefault();
-    const enrollment = $("#enrollment-confirmation-input").value.trim();
-    if (enrollment !== state.currentStudent.enrollment) {
-      notify("A matrícula informada não corresponde ao estudante selecionado.", "error");
-      $("#enrollment-confirmation-input").focus();
-      return;
-    }
-    elements.enrollmentDialog.close();
-    openSignature(null, "checkout", enrollment, state.signatureBooks.map((book) => book.id));
-  });
   $("#book-list").addEventListener("change", (event) => {
     const checkbox = event.target.closest('[data-action="select-checkout-book"]');
     if (!checkbox) return;
@@ -220,7 +230,13 @@ export function bindStudentDetail() {
     else state.selectedCheckoutBooks.delete(checkbox.dataset.book);
     renderStudentDetail();
   });
-  $("#checkout-selected-button").addEventListener("click", openCheckoutConfirmation);
+  $("#checkout-select-all").addEventListener("change", (event) => {
+    const eligible = eligibleCheckoutBooks(state.currentStudent);
+    if (event.target.checked) eligible.forEach((book) => state.selectedCheckoutBooks.add(book.id));
+    else state.selectedCheckoutBooks.clear();
+    renderStudentDetail();
+  });
+  $("#checkout-selected-button").addEventListener("click", openCheckoutSignature);
   $("#checkout-clear-selection").addEventListener("click", () => {
     state.selectedCheckoutBooks.clear();
     renderStudentDetail();

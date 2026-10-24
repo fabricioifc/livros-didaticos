@@ -5,7 +5,7 @@ import { escapeHtml } from "./utils.js";
 import { refreshCurrentStudent } from "./student-detail.js";
 import { openBookHistory } from "./history.js";
 
-export function openSignature(bookId, action, enrollmentConfirmation = "", bookIds = []) {
+export function openSignature(bookId, action, bookIds = []) {
   const book = state.currentStudent.books.find((item) => item.id === bookId);
   state.signatureBook = book || null;
   state.signatureBooks = bookIds.length
@@ -13,7 +13,6 @@ export function openSignature(bookId, action, enrollmentConfirmation = "", bookI
     : book ? [book] : [];
   state.signatureBook = state.signatureBooks.length === 1 ? state.signatureBooks[0] : null;
   state.signatureAction = action;
-  state.enrollmentConfirmation = enrollmentConfirmation;
   state.hasSignature = false;
   $("#signature-eyebrow").textContent = action === "checkout" ? "ASSINATURA DO ESTUDANTE" : "ASSINATURA DO SERVIDOR";
   $("#signature-title").textContent = action === "checkout"
@@ -122,7 +121,6 @@ export function bindSignature() {
             body: JSON.stringify({
               book_ids: state.signatureBooks.map((book) => book.id),
               signature,
-              enrollment_confirmation: state.enrollmentConfirmation,
             }),
           },
         );

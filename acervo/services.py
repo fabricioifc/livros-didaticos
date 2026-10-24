@@ -478,8 +478,14 @@ def import_students(database_path, filename, content, school_year):
 def update_student(database_path, enrollment, body, school_year):
     name = body.get("name")
     grade = body.get("grade")
+    new_enrollment = body.get("enrollment", enrollment)
     if not isinstance(name, str) or not name.strip() or len(name.strip()) > 150:
         raise ServiceError("Informe o nome do estudante (até 150 caracteres).", 400)
+    if not _is_valid_enrollment(
+        new_enrollment.strip() if isinstance(new_enrollment, str) else new_enrollment
+    ):
+        raise ServiceError("A matrícula deve conter exatamente 10 números.", 400)
+    new_enrollment = new_enrollment.strip()
     if grade not in GRADES:
         raise ServiceError("Selecione o 1º, 2º ou 3º ano.", 400)
     course_id = body.get("course_id")
@@ -493,11 +499,20 @@ def update_student(database_path, enrollment, body, school_year):
         raise ServiceError("Reative o vínculo antes de editar o cadastro.", 409)
     if not course or (not course["is_active"] and current["course_id"] != course_id):
         raise ServiceError("O curso selecionado não existe ou está inativo.", 400)
-    if not repository.update_student(
-        database_path, enrollment, name.strip(), grade, course_id, school_year
-    ):
+    try:
+        result = repository.update_student(
+            database_path, enrollment, name.strip(), grade, course_id, school_year, new_enrollment
+        )
+    except sqlite3.IntegrityError as error:
+        if "UNIQUE constraint failed: students.enrollment" in str(error):
+            result = "enrollment_taken"
+        else:
+            raise
+    if result == "not_found":
         raise ServiceError("Estudante não encontrado.", 404)
-    return repository.find_student(database_path, enrollment, school_year)
+    if result == "enrollment_taken":
+        raise ServiceError("Já existe um estudante com essa matrícula.", 409)
+    return repository.find_student(database_path, new_enrollment, school_year)
 
 
 def archive_student(database_path, enrollment, body, actor_email):
@@ -596,7 +611,6 @@ def sign_book(
     signature,
     server_email,
     school_year,
-    enrollment_confirmation=None,
 ):
     if action not in {"checkout", "return"}:
         raise ServiceError("Operação inválida.", 400)
@@ -611,14 +625,6 @@ def sign_book(
         raise ServiceError("Estudante não encontrado.", 404)
     if not validate_signature(signature):
         raise ServiceError("A assinatura está inválida ou vazia.", 400)
-    if action == "checkout" and (
-        not isinstance(enrollment_confirmation, str)
-        or enrollment_confirmation.strip() != enrollment
-    ):
-        raise ServiceError(
-            "A matrícula informada não corresponde ao estudante selecionado.",
-            400,
-        )
     result = repository.record_signature(
         database_path,
         enrollment,
@@ -651,7 +657,6 @@ def sign_books(
     signature,
     server_email,
     school_year,
-    enrollment_confirmation,
 ):
     if not isinstance(book_ids, list) or not 1 <= len(book_ids) <= 30:
         raise ServiceError("Selecione pelo menos um livro para registrar a entrega.", 400)
@@ -662,14 +667,6 @@ def sign_books(
     student = repository.find_student(database_path, enrollment, school_year)
     if not student or student["status"] != "active" or student["is_archived"]:
         raise ServiceError("Não é possível registrar uma entrega fora do ciclo letivo ativo.", 409)
-    if (
-        not isinstance(enrollment_confirmation, str)
-        or enrollment_confirmation.strip() != enrollment
-    ):
-        raise ServiceError(
-            "A matrícula informada não corresponde ao estudante selecionado.",
-            400,
-        )
     if not validate_signature(signature):
         raise ServiceError("A assinatura está inválida ou vazia.", 400)
     result = repository.record_signatures(

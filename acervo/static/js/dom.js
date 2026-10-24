@@ -13,7 +13,6 @@ export const elements = {
   studentForm: $("#student-form"),
   detailDialog: $("#student-detail-dialog"),
   signatureDialog: $("#signature-dialog"),
-  enrollmentDialog: $("#enrollment-confirmation-dialog"),
   canvas: $("#signature-canvas"),
   toastRegion: $("#toast-region"),
 };

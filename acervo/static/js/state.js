@@ -16,7 +16,6 @@ export const state = {
   signatureBook: null,
   signatureBooks: [],
   signatureAction: "checkout",
-  enrollmentConfirmation: "",
   historyBook: null,
   schoolYear: null,
   drawing: false,

@@ -719,13 +719,48 @@ def import_students(database_path, students, school_year):
     return imported
 
 
-def update_student(database_path, enrollment, name, grade, course_id, school_year):
+def _rename_student_enrollment(db, enrollment, new_enrollment):
+    """Troca a matrícula em todas as tabelas que a referenciam.
+
+    As chaves estrangeiras não têm ON UPDATE CASCADE; adiá-las até o commit
+    permite atualizar o estudante e os registros vinculados na mesma transação.
+    """
+    # Fora de uma transação, o pragma vale só para o próprio comando.
+    if not db.in_transaction:
+        db.execute("BEGIN")
+    db.execute("PRAGMA defer_foreign_keys = ON")
+    tables = [
+        row["name"]
+        for row in db.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
+        ).fetchall()
+    ]
+    for table in tables:
+        columns = {row["name"] for row in db.execute(f'PRAGMA table_info("{table}")').fetchall()}
+        if "enrollment" in columns:
+            db.execute(
+                f'UPDATE "{table}" SET enrollment = ? WHERE enrollment = ?',
+                (new_enrollment, enrollment),
+            )
+
+
+def update_student(
+    database_path, enrollment, name, grade, course_id, school_year, new_enrollment=None
+):
+    """Atualiza o cadastro. Retorna "not_found", "enrollment_taken" ou None."""
     with database(database_path) as db:
         current = db.execute(
             "SELECT grade FROM students WHERE enrollment = ?", (enrollment,)
         ).fetchone()
         if not current:
-            return False
+            return "not_found"
+        if new_enrollment and new_enrollment != enrollment:
+            if db.execute(
+                "SELECT 1 FROM students WHERE enrollment = ?", (new_enrollment,)
+            ).fetchone():
+                return "enrollment_taken"
+            _rename_student_enrollment(db, enrollment, new_enrollment)
+            enrollment = new_enrollment
         if current["grade"] != grade:
             previous_grade = current["grade"][0]
             db.execute(
@@ -748,7 +783,7 @@ def update_student(database_path, enrollment, name, grade, course_id, school_yea
             (grade, enrollment, school_year),
         )
         _insert_school_year(db, enrollment, school_year, grade)
-    return True
+    return None
 
 
 def archive_student(database_path, enrollment, actor_email, reason, recorded_at):

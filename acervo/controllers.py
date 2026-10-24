@@ -566,7 +566,6 @@ def record_signature(enrollment, book_id, action):
             request_body().get("signature"),
             g.user_email,
             current_app.config["SCHOOL_YEAR"],
-            request_body().get("enrollment_confirmation"),
         )
     except services.ServiceError as error:
         return handle_service_error(error)
@@ -588,7 +587,6 @@ def record_book_checkouts(enrollment):
             body.get("signature"),
             g.user_email,
             current_app.config["SCHOOL_YEAR"],
-            body.get("enrollment_confirmation"),
         )
     except services.ServiceError as error:
         return handle_service_error(error)

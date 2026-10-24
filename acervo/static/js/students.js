@@ -107,7 +107,6 @@ export function renderStudents() {
 export function openNewStudent() {
   state.editingStudent = null;
   elements.studentForm.reset();
-  $("#student-enrollment").readOnly = false;
   renderStudentCourseOptions();
   $("#student-dialog-title").textContent = "Adicionar estudante";
   $("#student-submit").innerHTML = "Salvar estudante <span>→</span>";
@@ -146,8 +145,8 @@ export function bindStudents() {
     try {
       const form = new FormData(elements.studentForm);
       const editing = state.editingStudent;
-      const enrollment = String(form.get("enrollment"));
-      await api(editing ? `/api/students/${encodeURIComponent(enrollment)}` : "/api/students", {
+      const enrollment = String(form.get("enrollment")).trim();
+      await api(editing ? `/api/students/${encodeURIComponent(editing.enrollment)}` : "/api/students", {
         method: editing ? "PUT" : "POST",
         body: JSON.stringify({
           name: form.get("name"),
@@ -161,7 +160,11 @@ export function bindStudents() {
       state.editingStudent = null;
       await refreshStudents();
       if (editing) {
-        state.currentStudent = state.students.find((student) => student.enrollment === enrollment);
+        const record = await api(`/api/students/${encodeURIComponent(enrollment)}`);
+        state.currentStudent = {
+          ...state.students.find((student) => student.enrollment === enrollment),
+          ...record,
+        };
         renderStudentDetail();
       }
       notify(editing ? "Cadastro atualizado com sucesso." : "Estudante cadastrado com sucesso.");
@@ -174,7 +177,6 @@ export function bindStudents() {
 
   elements.studentDialog.addEventListener("close", () => {
     state.editingStudent = null;
-    $("#student-enrollment").readOnly = false;
   });
 
   $("#students-search").addEventListener("input", () => {
