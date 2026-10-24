@@ -128,6 +128,8 @@ Antes de cada avanço do ano letivo, a aplicação cria e valida uma cópia comp
 
 Na aba **Administração → Backup**, o administrador pode criar um backup completo a qualquer momento (o arquivo é guardado no mesmo diretório e baixado em seguida), baixar os backups existentes no servidor e restaurar um backup enviando o arquivo SQLite (até 64 MB). Antes de restaurar, a aplicação valida o arquivo e cria um backup de segurança do banco atual; se a troca falhar, o banco anterior é recuperado. Após a restauração, todas as sessões são encerradas e é preciso entrar com uma conta existente no backup. O `nginx/default.conf` aceita uploads maiores apenas nessa rota.
 
+O servidor mantém no máximo os 5 backups mais recentes, contando os manuais, os do avanço do ano letivo e os de segurança da restauração. Ao criar um novo, os mais antigos são apagados automaticamente; guarde fora do servidor as cópias que precisar manter por mais tempo.
+
 Para produzir uma cópia manual adicional do banco, pare o serviço, copie o arquivo no host e inicie-o novamente:
 
 ```powershell

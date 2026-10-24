@@ -336,6 +336,29 @@ class LibraryAppTest(unittest.TestCase):
             403,
         )
 
+    def test_only_the_five_newest_backups_are_kept(self):
+        admin, csrf = self.admin_client()
+        backup_directory = Path(self.app.config["BACKUP_PATH"])
+        backup_directory.mkdir(parents=True, exist_ok=True)
+        oldest = backup_directory / "backup-2025-20250101T000000Z-aaaaaaaa.sqlite3"
+        oldest.write_bytes(b"old")
+        unrelated = backup_directory / "notas.txt"
+        unrelated.write_text("manter", encoding="utf-8")
+
+        created = []
+        for _ in range(6):
+            response = admin.post("/api/backups", headers={"X-CSRF-Token": csrf})
+            self.assertEqual(response.status_code, 201)
+            created.append(response.get_json()["backup"]["filename"])
+
+        listed = [item["filename"] for item in admin.get("/api/backups").get_json()["backups"]]
+        self.assertEqual(len(listed), 5)
+        self.assertEqual(listed[0], created[-1])
+        self.assertEqual(set(listed), set(created[-5:]))
+        self.assertFalse(oldest.exists())
+        self.assertFalse((backup_directory / created[0]).exists())
+        self.assertTrue(unrelated.exists())
+
     def test_admin_restores_backup_and_sessions_are_closed(self):
         admin, csrf = self.admin_client()
         self.create_test_student(admin, csrf, "2026000011", "Estudante do backup")

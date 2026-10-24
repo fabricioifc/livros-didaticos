@@ -23,6 +23,7 @@ class ServiceError(Exception):
 
 
 MAX_BACKUP_UPLOAD_BYTES = 64 * 1024 * 1024
+MAX_STORED_BACKUPS = 5
 BACKUP_FILENAME_PATTERN = r"backup-[0-9]{4}-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{8}\.sqlite3"
 
 
@@ -233,17 +234,45 @@ def create_database_backup(database_path, backup_directory, school_year):
             "Não foi possível criar e validar o backup completo.",
             500,
         ) from error
+    prune_database_backups(backup_directory, keep=filename)
     return {"filename": filename, "created_at": now_iso()}
 
 
-def list_database_backups(backup_directory):
+def _stored_backups(backup_directory):
+    """Backups do diretório, do mais recente para o mais antigo.
+
+    A ordem usa o horário gravado no nome, que não muda ao copiar o arquivo.
+    """
     backup_directory = Path(backup_directory)
     if not backup_directory.is_dir():
         return []
+    paths = [
+        path
+        for path in backup_directory.iterdir()
+        if path.is_file() and re.fullmatch(BACKUP_FILENAME_PATTERN, path.name)
+    ]
+    return sorted(
+        paths,
+        key=lambda path: (path.name.split("-")[2], path.stat().st_mtime_ns),
+        reverse=True,
+    )
+
+
+def prune_database_backups(backup_directory, keep=None):
+    stored = _stored_backups(backup_directory)
+    newest = [path for path in stored if path.name == keep]
+    newest += [path for path in stored if path.name != keep]
+    for path in newest[MAX_STORED_BACKUPS:]:
+        try:
+            path.unlink()
+        except OSError:
+            # O novo backup já foi criado; a limpeza é tentada de novo no próximo.
+            pass
+
+
+def list_database_backups(backup_directory):
     backups = []
-    for path in backup_directory.iterdir():
-        if not path.is_file() or not re.fullmatch(BACKUP_FILENAME_PATTERN, path.name):
-            continue
+    for path in _stored_backups(backup_directory):
         stat = path.stat()
         backups.append(
             {
@@ -254,7 +283,7 @@ def list_database_backups(backup_directory):
                 ),
             }
         )
-    return sorted(backups, key=lambda backup: backup["created_at"], reverse=True)
+    return backups
 
 
 def restore_database_backup(database_path, backup_directory, uploaded_file, filename, school_year):
