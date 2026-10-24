@@ -80,7 +80,7 @@ button { cursor: pointer; }
 .auth-note { margin-top: 40px; display: flex; align-items: center; justify-content: center; gap: 8px; color: #929b95; font-size: 10px; }
 .privacy-link { color: #52715d; font-size: 10px; }
 .auth-card > .privacy-link { display: block; margin-top: 12px; text-align: center; }
-.secure-dot, .status-dot, .campus-dot { width: 7px; height: 7px; border-radius: 50%; background: #5b9a69; }
+.secure-dot, .status-dot { width: 7px; height: 7px; border-radius: 50%; background: #5b9a69; }
 
 .application { min-height: 100vh; }
 .sidebar { position: fixed; z-index: 5; top: 0; bottom: 0; left: 0; width: 240px; display: flex; flex-direction: column; padding: 25px 17px 16px; border-right: 1px solid #edf0ed; background: #fff; }
@@ -88,8 +88,6 @@ button { cursor: pointer; }
 .application.sidebar-collapsed .main-content { margin-left: 0; }
 .brand-mark--sidebar { color: var(--ink); padding: 0 5px; }
 .brand-mark--sidebar .brand-mark__block { background: var(--green); color: #fff; }
-.sidebar-campus { margin: 28px 0 30px; display: flex; align-items: center; gap: 8px; color: #849087; font-size: 9px; font-weight: 700; letter-spacing: .1em; }
-.campus-dot { width: 6px; height: 6px; }
 .nav-section-label { padding: 0 11px 10px; color: #a1a9a3; font-size: 9px; font-weight: 700; letter-spacing: .1em; }
 .main-nav { display: grid; gap: 4px; }
 .nav-item { height: 41px; width: 100%; padding: 0 11px; border: 0; border-radius: 6px; display: flex; align-items: center; gap: 11px; background: transparent; text-align: left; color: #68736b; font-size: 12px; font-weight: 500; }
@@ -98,15 +96,12 @@ button { cursor: pointer; }
 .nav-count { margin-left: auto; min-width: 21px; height: 20px; display: grid; place-items: center; border-radius: 5px; background: #f0f3f1; color: #7b867e; font-size: 10px; }
 .nav-item.is-active .nav-count { background: #dfece3; color: #3c714d; }
 .nav-icon { position: relative; width: 17px; height: 17px; display: inline-block; color: currentColor; opacity: .9; }
+.nav-icon--svg { flex: 0 0 17px; }
 .nav-icon--grid { background: linear-gradient(currentColor,currentColor) 0 0/7px 7px,linear-gradient(currentColor,currentColor) 10px 0/7px 7px,linear-gradient(currentColor,currentColor) 0 10px/7px 7px,linear-gradient(currentColor,currentColor) 10px 10px/7px 7px; background-repeat: no-repeat; }
 .nav-icon--users::before, .nav-icon--users::after { position: absolute; content: ""; border: 1.4px solid currentColor; border-radius: 50%; }
 .nav-icon--users::before { width: 6px; height: 6px; top: 0; left: 5px; }
 .nav-icon--users::after { width: 13px; height: 7px; bottom: 0; left: 1px; border-radius: 9px 9px 4px 4px; }
 .sidebar-bottom { margin-top: auto; }
-.help-card { padding: 14px; border: 1px solid #edf0ed; border-radius: 7px; background: #fbfcfb; }
-.help-spark { float: right; color: #9ba87e; font-size: 15px; }
-.help-card strong { color: #3c4740; font-size: 11px; }
-.help-card p { margin: 7px 0 0; color: #89938c; font-size: 10px; line-height: 1.5; }
 .sidebar-credit { margin: 10px 2px 0; color: #89938c; font-size: 9px; line-height: 1.5; }
 .sidebar-credit a { color: #52715d; text-decoration: none; }
 .sidebar-credit a:hover { text-decoration: underline; }
@@ -135,7 +130,7 @@ button { cursor: pointer; }
 .breadcrumb-separator { color: #c3cac5; }
 .topbar-right { display: flex; align-items: center; gap: 15px; }
 .school-year { display: flex; align-items: center; gap: 7px; padding: 6px 9px; border: 1px solid #e7ece7; border-radius: 4px; background: #fff; color: #6c796e; font-size: 10px; }
-.sidebar-school-year { width: fit-content; margin: -16px 5px 25px; }
+.sidebar-school-year { width: fit-content; margin: 22px 5px 28px; }
 .status-dot { width: 6px; height: 6px; }
 .topbar-action { width: 32px; height: 32px; border: 1px solid #e7ece7; border-radius: 6px; background: #fff; color: #52715d; }
 .topbar-action:hover { border-color: #cddbcf; background: #f4f8f4; color: var(--green-text); }
@@ -619,19 +614,14 @@ dialog[open].dialog--detail { display: flex; flex-direction: column; }
 :root[data-theme="dark"] .auth-switch { color: #818984; }
 :root[data-theme="dark"] .auth-note { color: #7a847e; }
 :root[data-theme="dark"] .privacy-link { color: #a1b7a9; }
-:root[data-theme="dark"] .secure-dot, :root[data-theme="dark"] .status-dot, :root[data-theme="dark"] .campus-dot { background: #6faa7c; }
+:root[data-theme="dark"] .secure-dot, :root[data-theme="dark"] .status-dot { background: #6faa7c; }
 :root[data-theme="dark"] .sidebar { border-right: 1px solid #303430; background: #161b17; }
-:root[data-theme="dark"] .sidebar-campus { color: #858f87; }
 :root[data-theme="dark"] .nav-section-label { color: #6e7771; }
 :root[data-theme="dark"] .nav-item { color: #9ea6a0; }
 :root[data-theme="dark"] .nav-item:hover { background: #191e1b; }
 :root[data-theme="dark"] .nav-item.is-active { background: #1c221d; color: #bcdecc; }
 :root[data-theme="dark"] .nav-count { background: #1b211d; color: #8e9690; }
 :root[data-theme="dark"] .nav-item.is-active .nav-count { background: #202722; color: #a2c9af; }
-:root[data-theme="dark"] .help-card { border: 1px solid #303430; background: #171c19; }
-:root[data-theme="dark"] .help-spark { color: #8a976d; }
-:root[data-theme="dark"] .help-card strong { color: #c3cbc6; }
-:root[data-theme="dark"] .help-card p { color: #828b84; }
 :root[data-theme="dark"] .sidebar-credit { color: #828b84; }
 :root[data-theme="dark"] .sidebar-credit a { color: #9ec8ac; }
 :root[data-theme="dark"] .user-card { border-top: 1px solid #303330; }
