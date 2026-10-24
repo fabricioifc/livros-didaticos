@@ -4,7 +4,7 @@ import tempfile
 from contextlib import closing, contextmanager
 from pathlib import Path
 
-from .models import SHARED_BOOKS, book_list
+from .models import DEFAULT_CATALOG, catalog_book_key, now_iso
 
 
 @contextmanager
@@ -59,9 +59,18 @@ def initialize_db(database_path, school_year):
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS books (
+                id INTEGER PRIMARY KEY,
+                code TEXT,
+                title TEXT NOT NULL UNIQUE COLLATE NOCASE,
+                grade TEXT CHECK (grade IS NULL OR grade IN ('1º', '2º', '3º')),
+                is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
+                created_at TEXT NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS book_signatures (
                 enrollment TEXT NOT NULL REFERENCES students(enrollment) ON DELETE CASCADE,
                 book_id TEXT NOT NULL,
+                catalog_book_id INTEGER REFERENCES books(id),
                 title TEXT NOT NULL,
                 issue_year INTEGER NOT NULL,
                 checkout_signature TEXT,
@@ -200,7 +209,16 @@ def initialize_db(database_path, school_year):
         school_year = max(
             school_year, int(stored_year["value"]) if stored_year else school_year
         )
+        signature_columns = {
+            row["name"] for row in db.execute("PRAGMA table_info(book_signatures)").fetchall()
+        }
+        if "catalog_book_id" not in signature_columns:
+            db.execute(
+                "ALTER TABLE book_signatures ADD COLUMN catalog_book_id INTEGER REFERENCES books(id)"
+            )
+        _seed_book_catalog(db)
         _migrate_legacy_book_ids(db)
+        _link_book_signatures_to_catalog(db)
         _initialize_school_years(db, school_year)
         _backfill_school_year_books(db)
         db.execute(
@@ -455,6 +473,51 @@ def _migrate_legacy_book_ids(db):
         )
 
 
+def _seed_book_catalog(db):
+    """Cadastra o catálogo inicial uma única vez, mesmo que depois fique vazio."""
+    if db.execute(
+        "SELECT 1 FROM application_settings WHERE key = 'book_catalog_seeded'"
+    ).fetchone():
+        return
+    if not db.execute("SELECT 1 FROM books LIMIT 1").fetchone():
+        created_at = now_iso()
+        db.executemany(
+            "INSERT INTO books (code, title, grade, created_at) VALUES (?, ?, ?, ?)",
+            [(code, title, grade, created_at) for code, title, grade in DEFAULT_CATALOG],
+        )
+    db.execute(
+        "INSERT INTO application_settings (key, value) VALUES ('book_catalog_seeded', '1')"
+    )
+
+
+def _link_book_signatures_to_catalog(db):
+    """Associa ao catálogo os registros criados antes do cadastro de livros."""
+    if not db.execute(
+        "SELECT 1 FROM book_signatures WHERE catalog_book_id IS NULL LIMIT 1"
+    ).fetchone():
+        return
+    for book in db.execute("SELECT id, code, grade FROM books").fetchall():
+        base = book["code"] or f"livro-{book['id']}"
+        if book["grade"] is None:
+            condition, value = "book_id = ?", base
+        else:
+            condition, value = "book_id GLOB ?", f"{base}-[0-9][0-9][0-9][0-9]-{book['grade'][0]}"
+        db.execute(
+            f"""UPDATE book_signatures SET catalog_book_id = ?
+                WHERE catalog_book_id IS NULL AND {condition}""",
+            (book["id"], value),
+        )
+
+
+def _catalog_books_for_grade(db, grade):
+    return db.execute(
+        """SELECT id, code, title, grade FROM books
+           WHERE is_active = 1 AND (grade IS NULL OR grade = ?)
+           ORDER BY id""",
+        (grade,),
+    ).fetchall()
+
+
 def _insert_school_year(db, enrollment, school_year, grade, status="active"):
     db.execute(
         """INSERT OR IGNORE INTO student_years (enrollment, school_year, grade, status)
@@ -471,39 +534,40 @@ def _insert_school_year(db, enrollment, school_year, grade, status="active"):
             (enrollment,),
         ).fetchall()
     }
-    for book in book_list(grade, school_year):
-        prior = existing.get(book["id"])
+    for book in _catalog_books_for_grade(db, grade):
+        book_id = catalog_book_key(book, school_year)
+        prior = existing.get(book_id)
         if prior:
-            if book["id"] in {book_id for book_id, _ in SHARED_BOOKS}:
+            if book["grade"] is None:
+                # Volume único devolvido não é entregue de novo; o pendente
+                # passa para o ciclo atual e o emprestado segue com o estudante.
                 if prior["return_signature"]:
                     continue
                 if not prior["checkout_signature"]:
                     db.execute(
                         """UPDATE book_signatures SET issue_year = ?
                            WHERE enrollment = ? AND book_id = ?""",
-                        (school_year, enrollment, book["id"]),
+                        (school_year, enrollment, book_id),
                     )
             db.execute(
                 """INSERT OR IGNORE INTO student_year_books (enrollment, school_year, book_id)
                    VALUES (?, ?, ?)""",
-                (enrollment, school_year, book["id"]),
+                (enrollment, school_year, book_id),
             )
             continue
         db.execute(
-            """INSERT INTO book_signatures (enrollment, book_id, title, issue_year)
-               VALUES (?, ?, ?, ?)""",
-            (enrollment, book["id"], book["title"], school_year),
+            """INSERT INTO book_signatures (enrollment, book_id, catalog_book_id, title, issue_year)
+               VALUES (?, ?, ?, ?, ?)""",
+            (enrollment, book_id, book["id"], book["title"], school_year),
         )
         db.execute(
             """INSERT INTO student_year_books (enrollment, school_year, book_id)
                VALUES (?, ?, ?)""",
-            (enrollment, school_year, book["id"]),
+            (enrollment, school_year, book_id),
         )
 
 
 def _backfill_school_year_books(db):
-    shared_ids = tuple(book_id for book_id, _ in SHARED_BOOKS)
-    placeholders = ",".join("?" for _ in shared_ids)
     db.execute(
         """INSERT OR IGNORE INTO student_year_books (enrollment, school_year, book_id)
            SELECT y.enrollment, y.school_year, b.book_id
@@ -511,14 +575,41 @@ def _backfill_school_year_books(db):
            JOIN book_signatures b ON b.enrollment = y.enrollment
            WHERE y.status = 'active' AND (
                b.issue_year = y.school_year OR (
-                   b.book_id IN (""" + placeholders + """)
+                   b.catalog_book_id IN (SELECT id FROM books WHERE grade IS NULL)
                    AND b.checkout_signature IS NOT NULL
                    AND b.return_signature IS NULL
                    AND b.issue_year < y.school_year
                )
-           )""",
-        shared_ids,
+           )"""
     )
+
+
+def _sync_current_cycles(db, school_year):
+    """Aplica o catálogo aos ciclos ativos do ano letivo atual.
+
+    Livros inativos ou de outro ano saem do ciclo apenas se ainda não foram
+    entregues; ciclos anteriores não são alterados.
+    """
+    db.execute(
+        """DELETE FROM student_year_books
+           WHERE school_year = ? AND EXISTS (
+               SELECT 1 FROM book_signatures b
+               JOIN books k ON k.id = b.catalog_book_id
+               JOIN student_years y
+                 ON y.enrollment = b.enrollment AND y.school_year = student_year_books.school_year
+               WHERE b.enrollment = student_year_books.enrollment
+                 AND b.book_id = student_year_books.book_id
+                 AND b.checkout_signature IS NULL
+                 AND (k.is_active = 0 OR (k.grade IS NOT NULL AND k.grade != y.grade))
+           )""",
+        (school_year,),
+    )
+    for term in db.execute(
+        """SELECT enrollment, grade FROM student_years
+           WHERE school_year = ? AND status = 'active'""",
+        (school_year,),
+    ).fetchall():
+        _insert_school_year(db, term["enrollment"], school_year, term["grade"])
 
 
 def _initialize_school_years(db, current_year):
@@ -762,16 +853,13 @@ def update_student(
             _rename_student_enrollment(db, enrollment, new_enrollment)
             enrollment = new_enrollment
         if current["grade"] != grade:
-            previous_grade = current["grade"][0]
             db.execute(
                 """DELETE FROM book_signatures WHERE enrollment = ?
-                   AND issue_year = ? AND book_id IN (?, ?) AND checkout_signature IS NULL""",
-                (
-                    enrollment,
-                    school_year,
-                    f"portugues-{school_year}-{previous_grade}",
-                    f"matematica-{school_year}-{previous_grade}",
-                ),
+                   AND issue_year = ? AND checkout_signature IS NULL
+                   AND catalog_book_id IN (
+                       SELECT id FROM books WHERE grade IS NOT NULL AND grade != ?
+                   )""",
+                (enrollment, school_year, grade),
             )
         db.execute(
             "UPDATE students SET name = ?, grade = ?, course_id = ? WHERE enrollment = ?",
@@ -1027,6 +1115,120 @@ def list_students(database_path, query, school_year, exact_year=False):
         }
         for row in rows
     ]
+
+
+_BOOK_USAGE = """EXISTS (
+        SELECT 1 FROM book_signatures b
+        WHERE b.catalog_book_id = k.id
+          AND (b.checkout_signature IS NOT NULL OR b.return_signature IS NOT NULL
+               OR EXISTS (
+                   SELECT 1 FROM book_signature_history h
+                   WHERE h.enrollment = b.enrollment AND h.book_id = b.book_id
+               ))
+    )"""
+
+
+def list_books(database_path):
+    with database(database_path) as db:
+        rows = db.execute(
+            f"""SELECT k.id, k.title, k.grade, k.is_active, {_BOOK_USAGE} AS is_used
+                FROM books k
+                ORDER BY CASE WHEN k.grade IS NULL THEN 1 ELSE 0 END, k.grade,
+                         k.title COLLATE NOCASE"""
+        ).fetchall()
+    return [
+        {**dict(row), "is_active": bool(row["is_active"]), "is_used": bool(row["is_used"])}
+        for row in rows
+    ]
+
+
+def find_book(database_path, book_id):
+    with database(database_path) as db:
+        row = db.execute(
+            f"""SELECT k.id, k.title, k.grade, k.is_active, {_BOOK_USAGE} AS is_used
+                FROM books k WHERE k.id = ?""",
+            (book_id,),
+        ).fetchone()
+    if not row:
+        return None
+    return {**dict(row), "is_active": bool(row["is_active"]), "is_used": bool(row["is_used"])}
+
+
+def _book_title_taken(db, title, exclude_id=None):
+    # COLLATE NOCASE só ignora maiúsculas em ASCII; casefold cobre "Ç" e "ç".
+    wanted = title.casefold()
+    return any(
+        row["title"].casefold() == wanted
+        for row in db.execute("SELECT id, title FROM books").fetchall()
+        if row["id"] != exclude_id
+    )
+
+
+def add_book(database_path, title, grade, school_year):
+    """Retorna o id do livro ou "title_taken"."""
+    with database(database_path) as db:
+        db.execute("BEGIN IMMEDIATE")
+        if _book_title_taken(db, title):
+            return "title_taken"
+        cursor = db.execute(
+            "INSERT INTO books (title, grade, created_at) VALUES (?, ?, ?)",
+            (title, grade, now_iso()),
+        )
+        _sync_current_cycles(db, school_year)
+    return cursor.lastrowid
+
+
+def update_book(database_path, book_id, title, grade, is_active, school_year):
+    """Retorna "not_found", "title_taken", "used" (aplicação de livro já entregue) ou None."""
+    with database(database_path) as db:
+        db.execute("BEGIN IMMEDIATE")
+        current = db.execute(
+            f"SELECT k.grade, {_BOOK_USAGE} AS is_used FROM books k WHERE k.id = ?",
+            (book_id,),
+        ).fetchone()
+        if not current:
+            return "not_found"
+        if _book_title_taken(db, title, exclude_id=book_id):
+            return "title_taken"
+        if current["grade"] != grade:
+            if current["is_used"]:
+                return "used"
+            # Sem entregas, os registros do ciclo atual são recriados com o
+            # novo identificador; os de ciclos anteriores são mantidos.
+            db.execute(
+                """DELETE FROM book_signatures
+                   WHERE catalog_book_id = ? AND checkout_signature IS NULL AND issue_year >= ?""",
+                (book_id, school_year),
+            )
+        db.execute(
+            "UPDATE books SET title = ?, grade = ?, is_active = ? WHERE id = ?",
+            (title, grade, int(is_active), book_id),
+        )
+        # Termos já assinados mantêm o título da época da entrega.
+        db.execute(
+            """UPDATE book_signatures SET title = ?
+               WHERE catalog_book_id = ? AND checkout_signature IS NULL""",
+            (title, book_id),
+        )
+        _sync_current_cycles(db, school_year)
+    return None
+
+
+def delete_book(database_path, book_id):
+    """Retorna "not_found", "used" ou None."""
+    with database(database_path) as db:
+        db.execute("BEGIN IMMEDIATE")
+        current = db.execute(
+            f"SELECT {_BOOK_USAGE} AS is_used FROM books k WHERE k.id = ?",
+            (book_id,),
+        ).fetchone()
+        if not current:
+            return "not_found"
+        if current["is_used"]:
+            return "used"
+        db.execute("DELETE FROM book_signatures WHERE catalog_book_id = ?", (book_id,))
+        db.execute("DELETE FROM books WHERE id = ?", (book_id,))
+    return None
 
 
 def list_school_years(database_path, current_year):

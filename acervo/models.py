@@ -7,37 +7,43 @@ from datetime import datetime, timezone
 
 SCHOOL_YEAR = int(os.environ.get("SCHOOL_YEAR") or datetime.now().year)
 GRADES = {"1º", "2º", "3º"}
-SHARED_BOOKS = [
-    ("redacao", "360° Redação"),
-    ("arte", "360° Arte"),
-    ("ingles", "Ways — English for Life — Inglês"),
-    ("espanhol", "¡Sí, se puede! — Espanhol"),
-    ("educacao-fisica", "360° Educação Física"),
-    ("educacao-digital", "360° Educação Digital"),
-    ("filosofia", "Filosofia por toda parte"),
-    ("sociologia", "Sociologia por toda parte"),
-    ("historia", "História por toda parte"),
-    ("geografia", "Geografia por toda parte"),
-    ("quimica", "Identidade Saraiva — Química"),
-    ("fisica", "Identidade Saraiva — Física"),
-    ("biologia", "Identidade Saraiva — Biologia"),
+# Catálogo inicial. "grade" None indica volume único: o mesmo exemplar
+# acompanha o estudante nos três anos até a devolução. Os códigos mantêm os
+# identificadores usados antes do cadastro de livros.
+DEFAULT_CATALOG = [
+    ("portugues", "360° Língua Portuguesa — 1º ano", "1º"),
+    ("portugues", "360° Língua Portuguesa — 2º ano", "2º"),
+    ("portugues", "360° Língua Portuguesa — 3º ano", "3º"),
+    ("redacao", "360° Redação", None),
+    ("arte", "360° Arte", None),
+    ("ingles", "Ways — English for Life — Inglês", None),
+    ("espanhol", "¡Sí, se puede! — Espanhol", None),
+    ("educacao-fisica", "360° Educação Física", None),
+    ("educacao-digital", "360° Educação Digital", None),
+    ("filosofia", "Filosofia por toda parte", None),
+    ("sociologia", "Sociologia por toda parte", None),
+    ("historia", "História por toda parte", None),
+    ("geografia", "Geografia por toda parte", None),
+    ("quimica", "Identidade Saraiva — Química", None),
+    ("fisica", "Identidade Saraiva — Física", None),
+    ("biologia", "Identidade Saraiva — Biologia", None),
+    ("matematica", "Do seu jeito — Matemática — Volume 1", "1º"),
+    ("matematica", "Do seu jeito — Matemática — Volume 2", "2º"),
+    ("matematica", "Do seu jeito — Matemática — Volume 3", "3º"),
 ]
 _SIGNATURE_DATA = re.compile(r"^data:image/png;base64,([A-Za-z0-9+/]*={0,2})$")
 
 
-def book_list(grade, school_year=SCHOOL_YEAR):
-    year_number = grade[0]
-    return [
-        {
-            "id": f"portugues-{school_year}-{year_number}",
-            "title": f"360° Língua Portuguesa — {grade} ano",
-        },
-        *({"id": book_id, "title": title} for book_id, title in SHARED_BOOKS),
-        {
-            "id": f"matematica-{school_year}-{year_number}",
-            "title": f"Do seu jeito — Matemática — Volume {year_number}",
-        },
-    ]
+def catalog_book_key(book, school_year):
+    """Identificador do livro no termo do estudante.
+
+    Volume único usa sempre o mesmo identificador, para que o empréstimo
+    atravesse os ciclos; livro de ano específico ganha um por ciclo.
+    """
+    base = book["code"] or f"livro-{book['id']}"
+    if book["grade"] is None:
+        return base
+    return f"{base}-{school_year}-{book['grade'][0]}"
 
 
 def now_iso():

@@ -251,6 +251,60 @@ def update_course(course_id):
     return jsonify(course)
 
 
+@main.get("/api/books")
+@admin_required
+def list_books():
+    return jsonify({"books": services.repository.list_books(current_app.config["DATABASE_PATH"])})
+
+
+@main.post("/api/books")
+@admin_required
+def create_book():
+    error = csrf_error()
+    if error:
+        return error
+    try:
+        book = services.create_book(
+            current_app.config["DATABASE_PATH"],
+            request_body(),
+            current_app.config["SCHOOL_YEAR"],
+        )
+    except services.ServiceError as error:
+        return handle_service_error(error)
+    return jsonify(book), 201
+
+
+@main.put("/api/books/<int:book_id>")
+@admin_required
+def update_book(book_id):
+    error = csrf_error()
+    if error:
+        return error
+    try:
+        book = services.update_book(
+            current_app.config["DATABASE_PATH"],
+            book_id,
+            request_body(),
+            current_app.config["SCHOOL_YEAR"],
+        )
+    except services.ServiceError as error:
+        return handle_service_error(error)
+    return jsonify(book)
+
+
+@main.delete("/api/books/<int:book_id>")
+@admin_required
+def delete_book(book_id):
+    error = csrf_error()
+    if error:
+        return error
+    try:
+        services.delete_book(current_app.config["DATABASE_PATH"], book_id)
+    except services.ServiceError as error:
+        return handle_service_error(error)
+    return "", 204
+
+
 @main.get("/api/students")
 @login_required
 def list_students():

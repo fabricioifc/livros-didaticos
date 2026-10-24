@@ -280,6 +280,12 @@ th:first-child, td:first-child { padding-left: 2px; }
 .managed-user-form { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr) auto auto; align-items: end; gap: 14px; }
 .course-management-form { display: grid; grid-template-columns: minmax(180px, 1fr) auto; align-items: end; gap: 14px; margin-bottom: 16px; }
 .course-management-form { grid-template-columns: minmax(180px, 1fr) minmax(120px, 180px) auto; }
+.book-management-form { grid-template-columns: minmax(220px, 1fr) minmax(170px, 220px) auto; }
+.book-form-actions { display: flex; align-items: center; gap: 14px; }
+.book-form-actions .button { min-height: 40px; }
+.book-row-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.book-row-actions .button { min-height: 30px; padding: 0 10px; font-size: 10px; }
+#books-table tr.is-inactive td:not(:last-child) { opacity: .55; }
 .managed-user-form .field-label { margin-top: 0; }
 .managed-user-form .text-input, .user-management-card .text-input { height: 40px; }
 .school-year-settings-card .card-heading { margin-bottom: 15px; }

@@ -435,6 +435,268 @@ class LibraryAppTest(unittest.TestCase):
         enrollments = [student["enrollment"] for student in admin.get("/api/students").get_json()["students"]]
         self.assertEqual(enrollments, ["2026000013"])
 
+    def signature_data(self):
+        return "data:image/png;base64," + base64.b64encode(
+            b"\x89PNG\r\n\x1a\nvalid-test-image"
+        ).decode()
+
+    def student_book_ids(self, client, enrollment, year=None):
+        suffix = f"?year={year}" if year else ""
+        response = client.get(f"/api/students/{enrollment}{suffix}")
+        self.assertEqual(response.status_code, 200, response.get_json())
+        return [book["id"] for book in response.get_json()["books"]]
+
+    def test_default_catalog_is_seeded_and_managed_by_admins(self):
+        admin, csrf = self.admin_client()
+        books = admin.get("/api/books").get_json()["books"]
+        self.assertEqual(len(books), 19)
+        self.assertEqual(sum(1 for book in books if book["grade"] is None), 13)
+        self.assertEqual(
+            sorted(book["grade"] for book in books if book["grade"]),
+            ["1º", "1º", "2º", "2º", "3º", "3º"],
+        )
+        self.assertTrue(all(book["is_active"] and not book["is_used"] for book in books))
+
+        self.login()
+        self.assertEqual(self.client.get("/api/books").status_code, 403)
+        self.assertEqual(
+            self.client.post(
+                "/api/books",
+                json={"title": "Livro do servidor", "grade": None},
+                headers={"X-CSRF-Token": self.csrf()},
+            ).status_code,
+            403,
+        )
+
+        for body in ({"title": "", "grade": None}, {"title": "Livro", "grade": "4º"}, {"grade": None}):
+            with self.subTest(body=body):
+                response = admin.post("/api/books", json=body, headers={"X-CSRF-Token": csrf})
+                self.assertEqual(response.status_code, 400)
+        for title in ("360° redação", "360° REDAÇÃO"):
+            with self.subTest(title=title):
+                duplicate = admin.post(
+                    "/api/books",
+                    json={"title": title, "grade": None},
+                    headers={"X-CSRF-Token": csrf},
+                )
+                self.assertEqual(duplicate.status_code, 409)
+
+        created = admin.post(
+            "/api/books",
+            json={"title": "  Projeto de Vida  ", "grade": "2º"},
+            headers={"X-CSRF-Token": csrf},
+        )
+        self.assertEqual(created.status_code, 201)
+        book = created.get_json()
+        self.assertEqual((book["title"], book["grade"], book["is_active"]), ("Projeto de Vida", "2º", True))
+
+        updated = admin.put(
+            f"/api/books/{book['id']}",
+            json={"title": "Projeto de Vida — Volume único", "grade": None, "is_active": False},
+            headers={"X-CSRF-Token": csrf},
+        )
+        self.assertEqual(updated.status_code, 200, updated.get_json())
+        self.assertEqual(updated.get_json()["grade"], None)
+        self.assertFalse(updated.get_json()["is_active"])
+        renamed_to_existing = admin.put(
+            f"/api/books/{book['id']}",
+            json={"title": "IDENTIDADE SARAIVA — QUÍMICA", "grade": None, "is_active": False},
+            headers={"X-CSRF-Token": csrf},
+        )
+        self.assertEqual(renamed_to_existing.status_code, 409)
+        self.assertEqual(
+            admin.put(
+                f"/api/books/{book['id']}",
+                json={"title": "Projeto de Vida", "grade": None},
+                headers={"X-CSRF-Token": csrf},
+            ).status_code,
+            400,
+        )
+        self.assertEqual(
+            admin.delete(f"/api/books/{book['id']}", headers={"X-CSRF-Token": csrf}).status_code,
+            204,
+        )
+        self.assertEqual(
+            admin.delete(f"/api/books/{book['id']}", headers={"X-CSRF-Token": csrf}).status_code,
+            404,
+        )
+
+    def test_catalog_changes_apply_to_current_cycle_and_protect_delivered_books(self):
+        admin, csrf = self.admin_client()
+        self.create_test_student(admin, csrf, "2026000001", "Ana Silva")
+        created = admin.post(
+            "/api/students",
+            json={"name": "Bruno Lima", "enrollment": "2026000002", "grade": "2º", "course_id": self.informatics_course_id},
+            headers={"X-CSRF-Token": csrf},
+        )
+        self.assertEqual(created.status_code, 201)
+        self.assertEqual(len(self.student_book_ids(admin, "2026000001")), 15)
+
+        single = admin.post(
+            "/api/books",
+            json={"title": "Projeto de Vida", "grade": None},
+            headers={"X-CSRF-Token": csrf},
+        ).get_json()
+        first_year = admin.post(
+            "/api/books",
+            json={"title": "Robótica — 1º ano", "grade": "1º"},
+            headers={"X-CSRF-Token": csrf},
+        ).get_json()
+        single_key = f"livro-{single['id']}"
+        first_year_key = f"livro-{first_year['id']}-2026-1"
+        ana_books = self.student_book_ids(admin, "2026000001")
+        bruno_books = self.student_book_ids(admin, "2026000002")
+        self.assertIn(single_key, ana_books)
+        self.assertIn(first_year_key, ana_books)
+        self.assertIn(single_key, bruno_books)
+        self.assertNotIn(first_year_key, bruno_books)
+        self.assertEqual(ana_books[-2:], [single_key, first_year_key])
+
+        checkout = admin.post(
+            "/api/students/2026000001/books/checkout",
+            json={"book_ids": [single_key], "signature": self.signature_data()},
+            headers={"X-CSRF-Token": csrf},
+        )
+        self.assertEqual(checkout.status_code, 200)
+        books = {book["id"]: book for book in admin.get("/api/books").get_json()["books"]}
+        self.assertTrue(books[single["id"]]["is_used"])
+        self.assertFalse(books[first_year["id"]]["is_used"])
+
+        deactivated = admin.put(
+            f"/api/books/{single['id']}",
+            json={"title": "Projeto de Vida (nova edição)", "grade": None, "is_active": False},
+            headers={"X-CSRF-Token": csrf},
+        )
+        self.assertEqual(deactivated.status_code, 200)
+        ana = {book["id"]: book for book in admin.get("/api/students/2026000001").get_json()["books"]}
+        self.assertEqual(ana[single_key]["title"], "Projeto de Vida")
+        self.assertIsNotNone(ana[single_key]["checkout_signature"])
+        self.assertNotIn(single_key, self.student_book_ids(admin, "2026000002"))
+
+        reactivated = admin.put(
+            f"/api/books/{single['id']}",
+            json={"title": "Projeto de Vida (nova edição)", "grade": None, "is_active": True},
+            headers={"X-CSRF-Token": csrf},
+        )
+        self.assertEqual(reactivated.status_code, 200)
+        bruno = {book["id"]: book for book in admin.get("/api/students/2026000002").get_json()["books"]}
+        self.assertEqual(bruno[single_key]["title"], "Projeto de Vida (nova edição)")
+
+        locked = admin.put(
+            f"/api/books/{single['id']}",
+            json={"title": "Projeto de Vida (nova edição)", "grade": "1º", "is_active": True},
+            headers={"X-CSRF-Token": csrf},
+        )
+        self.assertEqual(locked.status_code, 409)
+        self.assertEqual(
+            admin.delete(f"/api/books/{single['id']}", headers={"X-CSRF-Token": csrf}).status_code,
+            409,
+        )
+
+        moved = admin.put(
+            f"/api/books/{first_year['id']}",
+            json={"title": "Robótica", "grade": "2º", "is_active": True},
+            headers={"X-CSRF-Token": csrf},
+        )
+        self.assertEqual(moved.status_code, 200)
+        self.assertNotIn(first_year_key, self.student_book_ids(admin, "2026000001"))
+        self.assertIn(f"livro-{first_year['id']}-2026-2", self.student_book_ids(admin, "2026000002"))
+        self.assertEqual(
+            admin.delete(f"/api/books/{first_year['id']}", headers={"X-CSRF-Token": csrf}).status_code,
+            204,
+        )
+        self.assertEqual(len(self.student_book_ids(admin, "2026000002")), 16)
+        with closing(sqlite3.connect(self.app.config["DATABASE_PATH"])) as db:
+            self.assertEqual(db.execute("PRAGMA foreign_key_check").fetchall(), [])
+
+    def test_school_year_cycles_use_catalog_and_keep_previous_years(self):
+        admin, csrf = self.admin_client()
+        for enrollment, name, grade in (
+            ("2026000001", "Ana Silva", "1º"),
+            ("2026000003", "Carla Souza", "3º"),
+        ):
+            created = admin.post(
+                "/api/students",
+                json={"name": name, "enrollment": enrollment, "grade": grade, "course_id": self.informatics_course_id},
+                headers={"X-CSRF-Token": csrf},
+            )
+            self.assertEqual(created.status_code, 201)
+        signature = self.signature_data()
+        delivered = admin.post(
+            "/api/students/2026000001/books/checkout",
+            json={"book_ids": ["portugues-2026-1", "redacao", "arte"], "signature": signature},
+            headers={"X-CSRF-Token": csrf},
+        )
+        self.assertEqual(delivered.status_code, 200)
+        returned = admin.put(
+            "/api/students/2026000001/books/arte/return",
+            json={"signature": signature},
+            headers={"X-CSRF-Token": csrf},
+        )
+        self.assertEqual(returned.status_code, 200)
+        catalog = {book["title"]: book for book in admin.get("/api/books").get_json()["books"]}
+        history_book = catalog["História por toda parte"]
+        self.assertEqual(
+            admin.put(
+                f"/api/books/{history_book['id']}",
+                json={"title": history_book["title"], "grade": None, "is_active": False},
+                headers={"X-CSRF-Token": csrf},
+            ).status_code,
+            200,
+        )
+        second_year_book = admin.post(
+            "/api/books",
+            json={"title": "Robótica — 2º ano", "grade": "2º"},
+            headers={"X-CSRF-Token": csrf},
+        ).get_json()
+        books_2026 = self.student_book_ids(admin, "2026000001")
+        self.assertNotIn("historia", books_2026)
+        self.assertNotIn(f"livro-{second_year_book['id']}-2026-2", books_2026)
+
+        advanced = admin.post(
+            "/api/settings/school-year",
+            json={"school_year": 2027},
+            headers={"X-CSRF-Token": csrf},
+        )
+        self.assertEqual(advanced.status_code, 200, advanced.get_json())
+
+        ana_2027 = {book["id"]: book for book in admin.get("/api/students/2026000001").get_json()["books"]}
+        self.assertEqual(admin.get("/api/students/2026000001").get_json()["grade"], "2º")
+        self.assertIn("portugues-2027-2", ana_2027)
+        self.assertIn("matematica-2027-2", ana_2027)
+        self.assertIn(f"livro-{second_year_book['id']}-2027-2", ana_2027)
+        self.assertNotIn("portugues-2026-1", ana_2027)
+        self.assertTrue(ana_2027["redacao"]["carried_forward"])
+        self.assertIsNotNone(ana_2027["redacao"]["checkout_signature"])
+        self.assertNotIn("arte", ana_2027)
+        self.assertNotIn("historia", ana_2027)
+        self.assertIsNone(ana_2027["ingles"]["checkout_signature"])
+        self.assertEqual(ana_2027["ingles"]["issue_year"], 2027)
+
+        ana_2026 = {book["id"]: book for book in admin.get("/api/students/2026000001?year=2026").get_json()["books"]}
+        self.assertIn("portugues-2026-1", ana_2026)
+        self.assertIsNotNone(ana_2026["portugues-2026-1"]["checkout_signature"])
+        self.assertIsNotNone(ana_2026["arte"]["return_signature"])
+        self.assertNotIn("portugues-2027-2", ana_2026)
+
+        carla = admin.get("/api/students/2026000003").get_json()
+        self.assertEqual(carla["status"], "completed")
+        self.assertEqual(carla["school_year"], 2026)
+        self.assertIn("portugues-2026-3", [book["id"] for book in carla["books"]])
+        with closing(sqlite3.connect(self.app.config["DATABASE_PATH"])) as db:
+            self.assertEqual(
+                db.execute(
+                    "SELECT COUNT(*) FROM student_years WHERE enrollment = '2026000003' AND school_year = 2027"
+                ).fetchone()[0],
+                0,
+            )
+            self.assertEqual(
+                db.execute(
+                    "SELECT COUNT(*) FROM book_signatures WHERE catalog_book_id IS NULL"
+                ).fetchone()[0],
+                0,
+            )
+
     def test_dev_reset_removes_only_student_data_and_sets_year(self):
         self.login()
         created = self.client.post(
@@ -1574,6 +1836,8 @@ class LibraryAppTest(unittest.TestCase):
         self.assertIn(b'id="admin-school-year-current"', page.data)
         self.assertIn(b'id="school-year-form"', page.data)
         self.assertIn(b'id="admin-panel-backups"', page.data)
+        self.assertIn(b'id="admin-panel-books"', page.data)
+        self.assertIn(b'id="book-form"', page.data)
         self.assertIn(b'id="backup-restore-form"', page.data)
         self.assertIn(b'id="course-form"', page.data)
         self.assertIn(b'id="course-abbreviation"', page.data)

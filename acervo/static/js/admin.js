@@ -53,6 +53,97 @@ export async function toggleCourse(row) {
   }
 }
 
+const BOOK_APPLICATIONS = { "1º": "Somente 1º ano", "2º": "Somente 2º ano", "3º": "Somente 3º ano" };
+
+function bookApplication(book) {
+  return BOOK_APPLICATIONS[book.grade] || "Volume único";
+}
+
+function renderManagedBooks() {
+  $("#books-table").innerHTML = state.books.map((book) => `
+    <tr data-book-id="${book.id}" class="${book.is_active ? "" : "is-inactive"}">
+      <td>${escapeHtml(book.title)}</td>
+      <td>${bookApplication(book)}</td>
+      <td>${book.is_active ? "Ativo" : "Inativo"}</td>
+      <td><div class="book-row-actions">
+        <button class="button button--secondary" data-book-action="edit" type="button">Editar</button>
+        <button class="button button--secondary" data-book-action="toggle" type="button">${book.is_active ? "Desativar" : "Reativar"}</button>
+        <button class="button button--danger-quiet" data-book-action="delete" type="button" ${book.is_used ? 'disabled title="Livro com entregas registradas: desative-o em vez de excluir."' : ""}>Excluir</button>
+      </div></td>
+    </tr>`).join("");
+  $("#books-empty").hidden = state.books.length > 0;
+  $("#books-table").closest(".table-scroll").hidden = state.books.length === 0;
+}
+
+export async function loadManagedBooks() {
+  try {
+    const result = await api("/api/books");
+    state.books = result.books;
+    renderManagedBooks();
+  } catch (error) {
+    notify(error.message, "error");
+  }
+}
+
+function resetBookForm() {
+  state.editingBook = null;
+  $("#book-form").reset();
+  $("#book-grade").disabled = false;
+  $("#book-grade").title = "";
+  $("#book-form-title").textContent = "Cadastrar livro";
+  $("#book-submit").textContent = "Cadastrar livro";
+  $("#book-cancel-edit").hidden = true;
+}
+
+function editBook(book) {
+  state.editingBook = book;
+  $("#book-title").value = book.title;
+  $("#book-grade").value = book.grade || "";
+  // A aplicação define o identificador de cada entrega; só muda antes da primeira.
+  $("#book-grade").disabled = book.is_used;
+  $("#book-grade").title = book.is_used ? "Livro já entregue: a aplicação não pode ser alterada." : "";
+  $("#book-form-title").textContent = "Editar livro";
+  $("#book-submit").textContent = "Salvar alterações";
+  $("#book-cancel-edit").hidden = false;
+  $("#book-title").focus();
+}
+
+async function saveBook(book, changes, message) {
+  await api(`/api/books/${book.id}`, {
+    method: "PUT",
+    body: JSON.stringify({ title: book.title, grade: book.grade, is_active: book.is_active, ...changes }),
+  });
+  await loadManagedBooks();
+  notify(message);
+}
+
+async function handleBookAction(button) {
+  const book = state.books.find((item) => item.id === Number(button.closest("tr").dataset.bookId));
+  if (!book) return;
+  const action = button.dataset.bookAction;
+  if (action === "edit") {
+    editBook(book);
+    return;
+  }
+  if (action === "delete" && !window.confirm(`Excluir o livro "${book.title}" do catálogo?`)) return;
+  button.disabled = true;
+  try {
+    if (action === "toggle") {
+      await saveBook(book, { is_active: !book.is_active }, book.is_active
+        ? "Livro desativado. Ele deixa de aparecer nos termos em que ainda não foi entregue."
+        : "Livro reativado e incluído nos termos do ano letivo atual.");
+    } else if (action === "delete") {
+      await api(`/api/books/${book.id}`, { method: "DELETE" });
+      if (state.editingBook?.id === book.id) resetBookForm();
+      await loadManagedBooks();
+      notify("Livro excluído do catálogo.");
+    }
+  } catch (error) {
+    notify(error.message, "error");
+    button.disabled = false;
+  }
+}
+
 function renderManagedUsers() {
   $("#managed-users-table").innerHTML = state.users.map((user) => `
     <tr data-user-id="${user.id}">
@@ -140,6 +231,34 @@ export async function loadBackups() {
 }
 
 export function bindAdmin() {
+  $("#book-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const button = $("#book-submit");
+    const editing = state.editingBook;
+    const title = $("#book-title").value;
+    const grade = $("#book-grade").value || null;
+    button.disabled = true;
+    try {
+      if (editing) {
+        await saveBook(editing, { title, grade }, "Livro atualizado.");
+      } else {
+        await api("/api/books", { method: "POST", body: JSON.stringify({ title, grade }) });
+        await loadManagedBooks();
+        notify("Livro cadastrado e incluído nos termos do ano letivo atual.");
+      }
+      resetBookForm();
+    } catch (error) {
+      notify(error.message, "error");
+    } finally {
+      button.disabled = false;
+    }
+  });
+  $("#book-cancel-edit").addEventListener("click", resetBookForm);
+  $("#books-table").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-book-action]");
+    if (button) handleBookAction(button);
+  });
+
   $("#backup-create-button").addEventListener("click", async (event) => {
     const button = event.currentTarget;
     button.disabled = true;

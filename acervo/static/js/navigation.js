@@ -1,6 +1,6 @@
 import { $, $$, elements } from "./dom.js";
 import { state } from "./state.js";
-import { loadBackups, loadManagedCourses, loadManagedUsers } from "./admin.js";
+import { loadBackups, loadManagedBooks, loadManagedCourses, loadManagedUsers } from "./admin.js";
 
 export function setMenuExpanded(expanded) {
   const isMobile = window.matchMedia("(max-width: 760px)").matches;
@@ -46,6 +46,7 @@ export function setView(view) {
     setAdminTab("courses");
     loadManagedUsers();
     loadManagedCourses();
+    loadManagedBooks();
     loadBackups();
   }
 }

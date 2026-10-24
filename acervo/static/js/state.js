@@ -13,6 +13,8 @@ export const state = {
   currentStudent: null,
   selectedCheckoutBooks: new Set(),
   editingStudent: null,
+  books: [],
+  editingBook: null,
   signatureBook: null,
   signatureBooks: [],
   signatureAction: "checkout",

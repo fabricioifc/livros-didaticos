@@ -166,7 +166,12 @@ matricula;nome;turma;curso
 
 Cada ano letivo tem seu próprio termo. Ao iniciar um novo ano, estudantes ativos são promovidos automaticamente (1º→2º e 2º→3º); quem concluiu o 3º ano fica arquivado, sem novo termo ativo. O ciclo, a turma histórica e a relação de títulos de cada termo ficam preservados, e é possível selecionar anos anteriores no detalhe do estudante e exportar o termo daquele ano em PDF.
 
-Português e Matemática são específicos da turma e do ano letivo. Os outros 13 títulos são volumes únicos: um empréstimo ainda não devolvido acompanha o estudante nos ciclos seguintes, sem gerar uma nova assinatura de entrega. Títulos já devolvidos não são reemitidos automaticamente. Ao corrigir a turma no ciclo atual, os novos volumes anuais são acrescentados sem apagar assinaturas anteriores. Cada assinatura é registrada com data e hora; a devolução também guarda o e-mail do servidor autenticado.
+Os títulos vêm do catálogo em **Administração → Livros**, onde o administrador cadastra, edita, desativa e exclui livros. Cada livro tem uma aplicação:
+
+- **Ano específico (1º, 2º ou 3º):** entregue a cada ciclo letivo aos estudantes daquele ano (como Português e Matemática).
+- **Volume único:** vale para os três anos. Um empréstimo ainda não devolvido acompanha o estudante nos ciclos seguintes, sem nova assinatura de entrega; títulos já devolvidos não são reemitidos.
+
+O catálogo começa com os 19 títulos usados até então (Português e Matemática para cada ano e 13 volumes únicos). Cadastrar, reativar ou desativar um livro altera os termos do ano letivo atual, sem mexer em livros já entregues nem em ciclos anteriores. Um livro com entregas registradas não pode ser excluído nem mudar de aplicação; desative-o. Os termos já assinados mantêm o título da época da entrega. Ao corrigir a turma no ciclo atual, os livros do novo ano são acrescentados sem apagar assinaturas anteriores. Cada assinatura é registrada com data e hora; a devolução também guarda o e-mail do servidor autenticado.
 
 O ano letivo inicial vem de `SCHOOL_YEAR` (por padrão, o ano corrente) e fica persistido no banco. Um administrador também pode alterá-lo na seção **Usuários → Ano letivo**: antes de avançar, a aplicação cria e valida um backup completo do banco; se essa etapa falhar, o ano não é alterado. Após o avanço, os ciclos e promoções faltantes são criados imediatamente e o backup fica disponível para download. Depois, novos ingressantes podem ser cadastrados/importados como 1º ano. A alteração vale para todos os servidores e persiste após reinícios, prevalecendo sobre uma variável de ambiente anterior. Não é permitido voltar para um ano menor, pois isso poderia reativar termos arquivados ou desfazer promoções; confira o ano antes de confirmar.
 

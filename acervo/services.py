@@ -195,6 +195,71 @@ def update_course(database_path, course_id, body):
     return repository.find_course(database_path, course_id)
 
 
+def _book_fields(body):
+    title = body.get("title")
+    if not isinstance(title, str) or not title.strip() or len(title.strip()) > 200:
+        raise ServiceError("Informe o título do livro (até 200 caracteres).", 400)
+    grade = body.get("grade")
+    if grade is not None and grade not in GRADES:
+        raise ServiceError("Escolha volume único ou o 1º, 2º ou 3º ano.", 400)
+    return title.strip(), grade
+
+
+DUPLICATE_BOOK_TITLE = "Já existe um livro com esse título."
+
+
+def _duplicate_book_title(error):
+    if "UNIQUE constraint failed: books.title" in str(error):
+        return ServiceError(DUPLICATE_BOOK_TITLE, 409)
+    return None
+
+
+def create_book(database_path, body, school_year):
+    title, grade = _book_fields(body)
+    try:
+        book_id = repository.add_book(database_path, title, grade, school_year)
+    except sqlite3.IntegrityError as error:
+        raise _duplicate_book_title(error) or error
+    if book_id == "title_taken":
+        raise ServiceError(DUPLICATE_BOOK_TITLE, 409)
+    return repository.find_book(database_path, book_id)
+
+
+def update_book(database_path, book_id, body, school_year):
+    title, grade = _book_fields(body)
+    is_active = body.get("is_active")
+    if not isinstance(is_active, bool):
+        raise ServiceError("Informe se o livro está ativo.", 400)
+    try:
+        result = repository.update_book(
+            database_path, book_id, title, grade, is_active, school_year
+        )
+    except sqlite3.IntegrityError as error:
+        raise _duplicate_book_title(error) or error
+    if result == "not_found":
+        raise ServiceError("Livro não encontrado.", 404)
+    if result == "title_taken":
+        raise ServiceError(DUPLICATE_BOOK_TITLE, 409)
+    if result == "used":
+        raise ServiceError(
+            "Este livro já foi entregue; a aplicação não pode ser alterada. "
+            "Desative-o e cadastre um novo, se necessário.",
+            409,
+        )
+    return repository.find_book(database_path, book_id)
+
+
+def delete_book(database_path, book_id):
+    result = repository.delete_book(database_path, book_id)
+    if result == "not_found":
+        raise ServiceError("Livro não encontrado.", 404)
+    if result == "used":
+        raise ServiceError(
+            "Este livro já tem entregas registradas e não pode ser excluído. Desative-o.",
+            409,
+        )
+
+
 def update_school_year(database_path, backup_directory, value, current_year):
     if isinstance(value, bool) or not isinstance(value, int) or not 1900 <= value <= 2100:
         raise ServiceError("Informe um ano letivo válido entre 1900 e 2100.", 400)
