@@ -269,6 +269,8 @@ th:first-child, td:first-child { padding-left: 2px; }
 .button-group > .button:not(:last-child) { border-top-right-radius: 0; border-bottom-right-radius: 0; }
 .button-group > .button:hover { position: relative; z-index: 1; }
 .all-students-card { padding: 0 20px; }
+.students-card-heading { align-items: center; gap: 16px; padding-top: 20px; }
+.button-icon { width: 16px; height: 16px; flex: 0 0 16px; }
 .loans-card { padding: 22px 20px 12px; }
 .loans-search { width: 100%; max-width: 560px; height: 44px; }
 .loans-search input { font-size: 13px; }
@@ -522,6 +524,7 @@ dialog[open].dialog--detail { display: flex; flex-direction: column; }
   .page-heading .button { min-height: 38px; padding: 0 10px; font-size: 10px; }
   .page-heading__actions { gap: 6px; flex-wrap: wrap; }
   .page-heading--students { align-items: flex-start; flex-direction: column; }
+  .students-card-heading { align-items: flex-start; flex-direction: column; padding-top: 16px; }
   .managed-user-form { grid-template-columns: 1fr; gap: 8px; }
   .course-management-form { grid-template-columns: 1fr; gap: 8px; }
   .school-year-form { grid-template-columns: 1fr; gap: 10px; }

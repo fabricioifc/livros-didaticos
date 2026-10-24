@@ -25,6 +25,7 @@ export function showApplication(email, isAdmin = false) {
   elements.application.hidden = false;
   setMenuExpanded(!window.matchMedia("(max-width: 760px)").matches);
   $("#users-nav-item").hidden = !isAdmin;
+  $("#export-annual-backup-button").hidden = !isAdmin;
   $("#user-email").textContent = email;
   $("#user-role").textContent = isAdmin ? "Administrador" : "Servidor";
   const initials = email.split("@")[0].split(/[._-]/).slice(0, 2).map((part) => part[0]?.toUpperCase() || "").join("");

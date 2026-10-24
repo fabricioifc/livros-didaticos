@@ -33,13 +33,11 @@ export function setView(view) {
   state.view = view;
   $("#dashboard-view").hidden = view !== "dashboard";
   $("#loans-view").hidden = view !== "loans";
-  $("#students-view").hidden = view !== "students";
   $("#users-view").hidden = view !== "users";
   $("#settings-view").hidden = view !== "settings";
   $("#breadcrumb-current").textContent = {
     dashboard: "Visão geral",
     loans: "Entregas",
-    students: "Estudantes",
     users: "Administração",
     settings: "Configurações",
   }[view] || "Visão geral";
@@ -47,7 +45,7 @@ export function setView(view) {
   if (window.matchMedia("(max-width: 760px)").matches) setMenuExpanded(false);
   if (view === "loans") focusLoanSearch();
   if (view === "users") {
-    setAdminTab("courses");
+    setAdminTab("students");
     loadManagedUsers();
     loadManagedCourses();
     loadManagedBooks();

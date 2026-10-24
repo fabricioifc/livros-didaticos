@@ -100,7 +100,6 @@ export function renderStudents() {
   $("#metric-total").textContent = String(total);
   $("#metric-awaiting").textContent = String(awaiting);
   $("#metric-complete").textContent = String(activeStudents.filter((student) => bookCounts(student).returned === bookCounts(student).total && bookCounts(student).returned > 0).length);
-  $("#nav-student-count").textContent = String(activeStudents.length);
   $("#students-empty").hidden = list.length > 0;
   renderDashboard();
   if (state.view === "loans") renderLoanResults();
@@ -116,7 +115,6 @@ export function openNewStudent() {
 }
 
 export function bindStudents() {
-  $("#add-student-button").addEventListener("click", openNewStudent);
   $("#add-student-button-list").addEventListener("click", openNewStudent);
   $("#import-students-button").addEventListener("click", () => $("#students-csv-input").click());
   $("#students-csv-input").addEventListener("change", async (event) => {

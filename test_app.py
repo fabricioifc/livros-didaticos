@@ -50,7 +50,7 @@ class LibraryAppTest(unittest.TestCase):
                 "SCHOOL_YEAR": 2026,
             }
         )
-        create_user(str(database_path), "servidor@ifc.edu.br", "senha-segura-de-teste")
+        create_user(str(database_path), "servidor@ifc.edu.br", "senha-segura-de-teste", is_admin=True)
         self.informatics_course_id = next(
             course["id"]
             for course in repository.list_courses(str(database_path))
@@ -66,6 +66,21 @@ class LibraryAppTest(unittest.TestCase):
 
     def tearDown(self):
         self.temp_dir.cleanup()
+
+    def servidor_client(self):
+        """Cliente logado como servidor sem perfil de administrador."""
+        database_path = self.app.config["DATABASE_PATH"]
+        if not repository.find_user(database_path, "comum@ifc.edu.br"):
+            create_user(database_path, "comum@ifc.edu.br", "senha-servidor-comum")
+        client = self.app.test_client()
+        csrf = client.get("/api/auth/session").get_json()["csrf_token"]
+        login = client.post(
+            "/api/auth/login",
+            json={"email": "comum@ifc.edu.br", "password": "senha-servidor-comum"},
+            headers={"X-CSRF-Token": csrf},
+        )
+        self.assertEqual(login.status_code, 200)
+        return client, login.get_json()["csrf_token"]
 
     def csrf(self):
         response = self.client.get("/api/auth/session")
@@ -155,10 +170,11 @@ class LibraryAppTest(unittest.TestCase):
             json={"name": "Ana Silva", "enrollment": "2026000001", "grade": "1º", "course_id": self.informatics_course_id},
             headers={"X-CSRF-Token": self.csrf()},
         )
-        denied = self.client.post(
+        servidor, servidor_csrf = self.servidor_client()
+        denied = servidor.post(
             "/api/settings/school-year",
             json={"school_year": 2028},
-            headers={"X-CSRF-Token": self.csrf()},
+            headers={"X-CSRF-Token": servidor_csrf},
         )
         self.assertEqual(denied.status_code, 403)
 
@@ -214,7 +230,7 @@ class LibraryAppTest(unittest.TestCase):
         self.assertEqual(downloaded_backup.data, backup_path.read_bytes())
         downloaded_backup.close()
         self.assertEqual(
-            self.client.get(f"/api/backups/{backup['filename']}").status_code,
+            self.servidor_client()[0].get(f"/api/backups/{backup['filename']}").status_code,
             403,
         )
         self.assertEqual(
@@ -356,10 +372,10 @@ class LibraryAppTest(unittest.TestCase):
         self.assertEqual(downloaded.data, backup_path.read_bytes())
         downloaded.close()
 
-        self.login()
-        self.assertEqual(self.client.get("/api/backups").status_code, 403)
+        servidor, servidor_csrf = self.servidor_client()
+        self.assertEqual(servidor.get("/api/backups").status_code, 403)
         self.assertEqual(
-            self.client.post("/api/backups", headers={"X-CSRF-Token": self.csrf()}).status_code,
+            servidor.post("/api/backups", headers={"X-CSRF-Token": servidor_csrf}).status_code,
             403,
         )
 
@@ -482,13 +498,13 @@ class LibraryAppTest(unittest.TestCase):
         )
         self.assertTrue(all(book["is_active"] and not book["is_used"] for book in books))
 
-        self.login()
-        self.assertEqual(self.client.get("/api/books").status_code, 403)
+        servidor, servidor_csrf = self.servidor_client()
+        self.assertEqual(servidor.get("/api/books").status_code, 403)
         self.assertEqual(
-            self.client.post(
+            servidor.post(
                 "/api/books",
                 json={"title": "Livro do servidor", "grade": None},
-                headers={"X-CSRF-Token": self.csrf()},
+                headers={"X-CSRF-Token": servidor_csrf},
             ).status_code,
             403,
         )
@@ -721,6 +737,53 @@ class LibraryAppTest(unittest.TestCase):
                 ).fetchone()[0],
                 0,
             )
+
+    def test_only_admins_manage_students_but_any_servidor_handles_loans(self):
+        self.login()
+        created = self.client.post(
+            "/api/students",
+            json={"name": "Ana Silva", "enrollment": "2026000001", "grade": "1º", "course_id": self.informatics_course_id},
+            headers={"X-CSRF-Token": self.csrf()},
+        )
+        self.assertEqual(created.status_code, 201)
+        servidor, csrf = self.servidor_client()
+        headers = {"X-CSRF-Token": csrf}
+        student = {"name": "Bruno Lima", "enrollment": "2026000002", "grade": "1º", "course_id": self.informatics_course_id}
+        denied = {
+            "cadastrar": servidor.post("/api/students", json=student, headers=headers),
+            "importar": servidor.post(
+                "/api/students/import",
+                data={"file": (BytesIO(b"matricula,nome,turma,curso\n2026000003,Caio,1,INFO\n"), "estudantes.csv")},
+                headers=headers,
+                content_type="multipart/form-data",
+            ),
+            "modelo CSV": servidor.get("/api/students/import-template"),
+            "editar": servidor.put("/api/students/2026000001", json={**student, "enrollment": "2026000001"}, headers=headers),
+            "desvincular": servidor.post("/api/students/2026000001/archive", json={"reason": "Transferência"}, headers=headers),
+            "reativar": servidor.post("/api/students/2026000001/reactivate", headers=headers),
+            "excluir": servidor.delete("/api/students/2026000001", headers=headers),
+            "termos do ano": servidor.get("/api/school-years/2026/terms.zip"),
+        }
+        for action, response in denied.items():
+            with self.subTest(action):
+                self.assertEqual(response.status_code, 403)
+        self.assertEqual(
+            [item["enrollment"] for item in servidor.get("/api/students").get_json()["students"]],
+            ["2026000001"],
+        )
+        self.assertEqual(servidor.get("/api/students/2026000001").status_code, 200)
+        checkout = servidor.post(
+            "/api/students/2026000001/books/checkout",
+            json={"book_ids": ["redacao"], "signature": TEST_SIGNATURE},
+            headers=headers,
+        )
+        self.assertEqual(checkout.status_code, 200)
+        returned = servidor.put(
+            "/api/students/2026000001/books/redacao/return",
+            json={"signature": TEST_SIGNATURE},
+            headers=headers,
+        )
+        self.assertEqual(returned.status_code, 200)
 
     def test_dev_reset_removes_only_student_data_and_sets_year(self):
         self.login()
@@ -1056,8 +1119,7 @@ class LibraryAppTest(unittest.TestCase):
             for user in admin_client.get("/api/users").get_json()["users"]
             if user["email"] == "fabricio.bizotto@ifc.edu.br"
         )
-        self.login()
-        self.assertEqual(self.client.get("/api/users").status_code, 403)
+        self.assertEqual(self.servidor_client()[0].get("/api/users").status_code, 403)
 
         created = admin_client.post(
             "/api/users",
@@ -1156,11 +1218,11 @@ class LibraryAppTest(unittest.TestCase):
             {course["abbreviation"] for course in courses},
             {"INFO", "ADM"},
         )
-        self.login()
-        denied = self.client.post(
+        servidor, servidor_csrf = self.servidor_client()
+        denied = servidor.post(
             "/api/courses",
             json={"name": "Curso restrito"},
-            headers={"X-CSRF-Token": self.csrf()},
+            headers={"X-CSRF-Token": servidor_csrf},
         )
         self.assertEqual(denied.status_code, 403)
 
@@ -1790,9 +1852,10 @@ class LibraryAppTest(unittest.TestCase):
             ],
         )
 
-        denied_delete = self.client.delete(
+        servidor, servidor_csrf = self.servidor_client()
+        denied_delete = servidor.delete(
             f"/api/students/{student_data['enrollment']}",
-            headers={"X-CSRF-Token": self.csrf()},
+            headers={"X-CSRF-Token": servidor_csrf},
         )
         self.assertEqual(denied_delete.status_code, 403)
 
@@ -1870,6 +1933,9 @@ class LibraryAppTest(unittest.TestCase):
         self.assertIn(b"signature-book", page.data)
         self.assertIn(b'id="checkout-select-all"', page.data)
         self.assertIn(b'id="loans-search"', page.data)
+        self.assertIn(b'id="admin-panel-students"', page.data)
+        self.assertNotIn(b'data-view="students"', page.data)
+        self.assertNotIn(b'id="students-view"', page.data)
         self.assertIn(b'data-view="loans"', page.data)
         self.assertIn(b'id="open-loans-button"', page.data)
         self.assertIn(b'data-student-status="completed"', page.data)
@@ -2068,11 +2134,11 @@ class LibraryAppTest(unittest.TestCase):
 
     def test_reactivated_account_does_not_restore_old_sessions(self):
         database_path = self.app.config["DATABASE_PATH"]
-        self.login()
-        user = repository.find_user(database_path, "servidor@ifc.edu.br")
+        servidor, _ = self.servidor_client()
+        user = repository.find_user(database_path, "comum@ifc.edu.br")
         repository.update_user(database_path, user["id"], False, False)
         repository.update_user(database_path, user["id"], False, True)
-        self.assertEqual(self.client.get("/api/students").status_code, 401)
+        self.assertEqual(servidor.get("/api/students").status_code, 401)
 
     def test_session_expires_after_idle_time_and_max_age(self):
         self.login()

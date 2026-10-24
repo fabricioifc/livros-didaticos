@@ -332,7 +332,7 @@ def list_school_years():
 
 
 @main.get("/api/school-years/<int:school_year>/terms.zip")
-@login_required
+@admin_required
 def export_year_terms(school_year):
     try:
         archive = services.export_year_terms(
@@ -445,7 +445,7 @@ def download_backup(filename):
 
 
 @main.post("/api/students")
-@login_required
+@admin_required
 def create_student():
     error = csrf_error()
     if error:
@@ -462,7 +462,7 @@ def create_student():
 
 
 @main.post("/api/students/import")
-@login_required
+@admin_required
 def import_students():
     error = csrf_error()
     if error:
@@ -483,7 +483,7 @@ def import_students():
 
 
 @main.get("/api/students/import-template")
-@login_required
+@admin_required
 def download_import_template():
     template = "\ufeffmatricula;nome;turma;curso\r\n;;;\r\n;;;\r\n"
     return Response(
@@ -494,7 +494,7 @@ def download_import_template():
 
 
 @main.put("/api/students/<enrollment>")
-@login_required
+@admin_required
 def update_student(enrollment):
     error = csrf_error()
     if error:
@@ -512,7 +512,7 @@ def update_student(enrollment):
 
 
 @main.post("/api/students/<enrollment>/archive")
-@login_required
+@admin_required
 def archive_student(enrollment):
     error = csrf_error()
     if error:
@@ -530,7 +530,7 @@ def archive_student(enrollment):
 
 
 @main.post("/api/students/<enrollment>/reactivate")
-@login_required
+@admin_required
 def reactivate_student(enrollment):
     error = csrf_error()
     if error:
