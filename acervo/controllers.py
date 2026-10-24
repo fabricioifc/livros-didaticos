@@ -4,9 +4,9 @@ import secrets
 import time
 from functools import wraps
 
-from flask import Blueprint, Response, current_app, g, jsonify, render_template, request, send_from_directory, session
+from flask import Blueprint, Response, current_app, g, jsonify, redirect, render_template, request, send_from_directory, session, url_for
 
-from . import services
+from . import google_oauth, services
 
 
 main = Blueprint("main", __name__)
@@ -149,15 +149,59 @@ def auth_session():
     if not user:
         if "user_id" in session or "csrf_token" not in session:
             reset_anonymous_session()
-        return jsonify({"authenticated": False, "csrf_token": session["csrf_token"]})
+        return jsonify(
+            {
+                "authenticated": False,
+                "csrf_token": session["csrf_token"],
+                "google_enabled": google_oauth.is_configured(current_app.config),
+            }
+        )
     return jsonify(
         {
             "authenticated": True,
             "email": user["email"],
             "is_admin": bool(user["is_admin"]),
             "csrf_token": session["csrf_token"],
+            "google_enabled": google_oauth.is_configured(current_app.config),
         }
     )
+
+
+@main.get("/api/auth/google/start")
+def google_login_start():
+    if not google_oauth.is_configured(current_app.config):
+        return json_error("Login com Google não configurado.", 404)
+    url, flow = google_oauth.start(current_app.config)
+    session["google_oauth"] = flow
+    return redirect(url)
+
+
+@main.get("/api/auth/google/callback")
+def google_login_callback():
+    flow = session.pop("google_oauth", None)
+
+    def failed(code, detail):
+        current_app.logger.warning("Login com Google recusado (%s): %s", code, detail)
+        return redirect(url_for("main.index", login_error=code))
+
+    if not google_oauth.is_configured(current_app.config):
+        return failed("google", "login com Google não configurado")
+    if request.args.get("error"):
+        return failed("cancelado", request.args.get("error"))
+    try:
+        google_oauth.check_callback_state(flow, request.args.get("state"))
+        code = request.args.get("code")
+        if not code:
+            raise google_oauth.GoogleAuthError("google", "Retorno do Google sem código.")
+        tokens = google_oauth.exchange_code(current_app.config, code, flow["verifier"])
+        email = google_oauth.id_token_email(tokens["id_token"], current_app.config, flow["nonce"])
+        user = services.google_login(current_app.config["DATABASE_PATH"], email)
+    except google_oauth.GoogleAuthError as error:
+        return failed(error.code, error)
+    except services.ServiceError as error:
+        return failed("conta", error)
+    start_session(user)
+    return redirect(url_for("main.index"))
 
 
 @main.post("/api/auth/logout")

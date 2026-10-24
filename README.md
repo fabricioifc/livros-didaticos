@@ -187,7 +187,13 @@ docker compose run --rm web python server.py create-user
 
 Administradores veem a seção **Administração**, organizada nas abas **Cursos**, **Ano letivo** e **Usuários**. Podem cadastrar contas `@ifc.edu.br`, promover servidores a administradores e ativar/desativar contas. O menu lateral pode ser recolhido pelo botão no topo da página. Contas desativadas não podem entrar e sessões já abertas perdem o acesso na próxima requisição. O sistema impede que o administrador remova o próprio acesso pela interface ou que a última conta administradora ativa seja desativada/rebaixada. Não há cadastro público nem recuperação de senha implementados.
 
-O botão Google permanece desativado: OAuth não está conectado até que o campus configure um provedor OIDC e suas credenciais e URLs de callback. Não publique este servidor diretamente na internet sem configurar esses controles e uma política de backup.
+O login com e-mail e senha continua disponível. O **login com Google** é opcional e só aparece quando `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` e `GOOGLE_REDIRECT_URI` estão configurados (veja `.env.example`). Para ativá-lo:
+
+1. No Google Cloud Console, crie um cliente OAuth do tipo **Aplicativo da Web** e cadastre como URI de redirecionamento autorizada o endereço público seguido de `/api/auth/google/callback` (por exemplo, `https://acervo.exemplo.ifc.edu.br/api/auth/google/callback`). A tela de consentimento pode ser do tipo **Interno**, restrita à organização.
+2. Preencha as três variáveis no `.env`; `GOOGLE_REDIRECT_URI` deve ser idêntica à cadastrada.
+3. Reinicie a aplicação.
+
+O Google não cria contas: entra apenas quem já tem conta **ativa** no Acervo com o mesmo e-mail, que precisa ser `@ifc.edu.br` e verificado pelo Google. Perfil (servidor ou administrador), desativação e encerramento de sessões seguem as mesmas regras do login com senha. O fluxo usa `state`, `nonce` e PKCE, e o servidor confere emissor, público, validade e domínio do ID token. Não publique este servidor diretamente na internet sem configurar esses controles e uma política de backup.
 
 As assinaturas manuscritas são armazenadas como imagens junto às datas e ao registro do servidor. O QR autentica a sessão do estudante, mas não substitui a avaliação institucional sobre validade jurídica e requisitos de assinatura eletrônica. Validade jurídica e uso de credenciais por estudantes menores de idade devem ser avaliados pelo IFC antes do uso oficial.
 

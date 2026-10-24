@@ -42,10 +42,10 @@
           <div class="input-wrap"><span class="input-icon input-icon--lock"></span><input id="password" name="password" type="password" placeholder="Sua senha" autocomplete="current-password" required><button class="password-toggle" type="button" data-toggle-password="password" aria-label="Mostrar senha" aria-pressed="false">Mostrar</button></div>
           <button class="button button--primary button--wide" type="submit" id="auth-submit">Entrar na plataforma <span aria-hidden="true">→</span></button>
         </form>
-        <div class="auth-divider"><span>ou</span></div>
-        <button class="button button--google button--wide" type="button" disabled aria-label="Autenticação Google disponível em breve">
-          <span class="google-g">G</span> Continuar com Google <span class="soon-label">EM BREVE</span>
-        </button>
+        <div class="auth-divider" id="google-login-divider" hidden><span>ou</span></div>
+        <a class="button button--google button--wide" id="google-login-button" href="/api/auth/google/start" hidden>
+          <span class="google-g" aria-hidden="true">G</span> Continuar com Google
+        </a>
         <p class="auth-switch">Primeiro acesso? Solicite uma conta ao administrador do sistema.</p>
         <p class="auth-note"><span class="secure-dot"></span> Acesso exclusivo para servidores do IFC</p>
         <a class="privacy-link" href="{{ url_for('main.privacy_notice') }}" target="_blank" rel="noopener">Aviso de Privacidade</a>

@@ -5,11 +5,14 @@ from io import BytesIO
 import sqlite3
 import struct
 import tempfile
+import time
 import unittest
+import urllib.parse
+from unittest import mock
 import zlib
 from pathlib import Path
 
-from acervo import create_app, repository
+from acervo import create_app, google_oauth, repository
 from acervo.services import create_user
 
 
@@ -784,6 +787,153 @@ class LibraryAppTest(unittest.TestCase):
             headers=headers,
         )
         self.assertEqual(returned.status_code, 200)
+
+    GOOGLE_CONFIG = {
+        "GOOGLE_CLIENT_ID": "cliente-teste.apps.googleusercontent.com",
+        "GOOGLE_CLIENT_SECRET": "segredo-de-teste",
+        "GOOGLE_REDIRECT_URI": "https://acervo.test/api/auth/google/callback",
+    }
+
+    @staticmethod
+    def make_id_token(claims):
+        def encode(value):
+            return base64.urlsafe_b64encode(json.dumps(value).encode()).rstrip(b"=").decode()
+
+        return f"{encode({'alg': 'RS256'})}.{encode(claims)}.assinatura"
+
+    def google_claims(self, nonce, **overrides):
+        now = int(time.time())
+        claims = {
+            "iss": "https://accounts.google.com",
+            "aud": self.GOOGLE_CONFIG["GOOGLE_CLIENT_ID"],
+            "azp": self.GOOGLE_CONFIG["GOOGLE_CLIENT_ID"],
+            "iat": now,
+            "exp": now + 3600,
+            "nonce": nonce,
+            "email": "servidor@ifc.edu.br",
+            "email_verified": True,
+            "hd": "ifc.edu.br",
+        }
+        claims.update(overrides)
+        return {key: value for key, value in claims.items() if value is not None}
+
+    def google_round_trip(self, client, claims=None, state=None, **callback_params):
+        """Inicia o login, simula o Google e devolve (resposta do retorno, fluxo, mock)."""
+        started = client.get("/api/auth/google/start")
+        self.assertEqual(started.status_code, 302)
+        with client.session_transaction() as session:
+            flow = dict(session["google_oauth"])
+        token = self.make_id_token(claims if claims is not None else self.google_claims(flow["nonce"]))
+        with mock.patch.object(google_oauth, "exchange_code", return_value={"id_token": token}) as exchange:
+            params = {"code": "codigo-de-teste", "state": flow["state"] if state is None else state, **callback_params}
+            response = client.get(f"/api/auth/google/callback?{urllib.parse.urlencode(params)}")
+        return response, flow, exchange
+
+    def assert_google_login_error(self, response, code):
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], f"/?login_error={code}")
+
+    def test_google_login_is_hidden_until_configured(self):
+        self.assertFalse(self.client.get("/api/auth/session").get_json()["google_enabled"])
+        self.assertEqual(self.client.get("/api/auth/google/start").status_code, 404)
+        self.app.config.update(self.GOOGLE_CONFIG)
+        self.assertTrue(self.client.get("/api/auth/session").get_json()["google_enabled"])
+
+    def test_google_login_signs_in_existing_active_account(self):
+        self.app.config.update(self.GOOGLE_CONFIG)
+        started = self.client.get("/api/auth/google/start")
+        location = urllib.parse.urlsplit(started.headers["Location"])
+        params = dict(urllib.parse.parse_qsl(location.query))
+        self.assertEqual(f"{location.scheme}://{location.netloc}{location.path}", google_oauth.AUTHORIZATION_ENDPOINT)
+        self.assertEqual(params["client_id"], self.GOOGLE_CONFIG["GOOGLE_CLIENT_ID"])
+        self.assertEqual(params["redirect_uri"], self.GOOGLE_CONFIG["GOOGLE_REDIRECT_URI"])
+        self.assertEqual(params["response_type"], "code")
+        self.assertEqual(params["scope"], "openid email")
+        self.assertEqual(params["code_challenge_method"], "S256")
+        with self.client.session_transaction() as session:
+            flow = dict(session["google_oauth"])
+        self.assertEqual(params["state"], flow["state"])
+        self.assertEqual(params["nonce"], flow["nonce"])
+        expected_challenge = base64.urlsafe_b64encode(
+            __import__("hashlib").sha256(flow["verifier"].encode()).digest()
+        ).rstrip(b"=").decode()
+        self.assertEqual(params["code_challenge"], expected_challenge)
+
+        response, flow, exchange = self.google_round_trip(self.client)
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], "/")
+        exchange.assert_called_once()
+        self.assertEqual(exchange.call_args.args[1:], ("codigo-de-teste", flow["verifier"]))
+        session_data = self.client.get("/api/auth/session").get_json()
+        self.assertTrue(session_data["authenticated"])
+        self.assertEqual(session_data["email"], "servidor@ifc.edu.br")
+        self.assertEqual(self.client.get("/api/students").status_code, 200)
+
+        replay = self.client.get(
+            f"/api/auth/google/callback?code=codigo-de-teste&state={flow['state']}"
+        )
+        self.assert_google_login_error(replay, "sessao")
+
+    def test_google_login_rejects_invalid_callbacks_and_accounts(self):
+        self.app.config.update(self.GOOGLE_CONFIG)
+        database_path = self.app.config["DATABASE_PATH"]
+        create_user(database_path, "inativo@ifc.edu.br", "senha-inativa-segura")
+        inactive = repository.find_user(database_path, "inativo@ifc.edu.br")
+        repository.update_user(database_path, inactive["id"], False, False)
+
+        def nonce_claims(**overrides):
+            return lambda flow: self.google_claims(flow["nonce"], **overrides)
+
+        cases = {
+            "estado divergente": ({"state": "outro-estado"}, None, "sessao"),
+            "cancelado no Google": ({"error": "access_denied"}, None, "cancelado"),
+            "sem código": ({"code": ""}, None, "google"),
+            "e-mail sem conta": ({}, nonce_claims(email="desconhecido@ifc.edu.br"), "conta"),
+            "conta desativada": ({}, nonce_claims(email="inativo@ifc.edu.br"), "conta"),
+            "outro domínio": ({}, nonce_claims(email="pessoa@gmail.com", hd=None), "dominio"),
+            "sem domínio hospedado": ({}, nonce_claims(hd=None), "dominio"),
+            "e-mail não verificado": ({}, nonce_claims(email_verified=False), "dominio"),
+            "outro público": ({}, nonce_claims(aud="outro-cliente"), "google"),
+            "outro emissor": ({}, nonce_claims(iss="https://exemplo.com"), "google"),
+            "token expirado": ({}, nonce_claims(exp=int(time.time()) - 10), "google"),
+            "nonce divergente": ({}, lambda flow: self.google_claims("outro-nonce"), "google"),
+        }
+        for label, (params, claims_for, expected) in cases.items():
+            with self.subTest(label):
+                client = self.app.test_client()
+                started = client.get("/api/auth/google/start")
+                with client.session_transaction() as session:
+                    flow = dict(session["google_oauth"])
+                claims = claims_for(flow) if claims_for else self.google_claims(flow["nonce"])
+                token = self.make_id_token(claims)
+                query = {"code": "codigo-de-teste", "state": flow["state"], **params}
+                with mock.patch.object(google_oauth, "exchange_code", return_value={"id_token": token}):
+                    response = client.get(f"/api/auth/google/callback?{urllib.parse.urlencode(query)}")
+                self.assert_google_login_error(response, expected)
+                self.assertFalse(client.get("/api/auth/session").get_json()["authenticated"])
+                self.assertEqual(started.status_code, 302)
+
+        expired_client = self.app.test_client()
+        expired_client.get("/api/auth/google/start")
+        with expired_client.session_transaction() as session:
+            session["google_oauth"] = {**session["google_oauth"], "created_at": int(time.time()) - 3600}
+            flow = dict(session["google_oauth"])
+        response = expired_client.get(
+            f"/api/auth/google/callback?code=codigo&state={flow['state']}"
+        )
+        self.assert_google_login_error(response, "sessao")
+
+        failing_client = self.app.test_client()
+        failing_client.get("/api/auth/google/start")
+        with failing_client.session_transaction() as session:
+            flow = dict(session["google_oauth"])
+        with mock.patch.object(
+            google_oauth, "exchange_code", side_effect=google_oauth.GoogleAuthError("google", "falha de rede")
+        ):
+            response = failing_client.get(
+                f"/api/auth/google/callback?code=codigo&state={flow['state']}"
+            )
+        self.assert_google_login_error(response, "google")
 
     def test_dev_reset_removes_only_student_data_and_sets_year(self):
         self.login()
@@ -1933,6 +2083,8 @@ class LibraryAppTest(unittest.TestCase):
         self.assertIn(b"signature-book", page.data)
         self.assertIn(b'id="checkout-select-all"', page.data)
         self.assertIn(b'id="loans-search"', page.data)
+        self.assertIn(b'id="google-login-button"', page.data)
+        self.assertNotIn(b"EM BREVE", page.data)
         self.assertIn(b'id="admin-panel-students"', page.data)
         self.assertNotIn(b'data-view="students"', page.data)
         self.assertNotIn(b'id="students-view"', page.data)

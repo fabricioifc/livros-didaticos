@@ -72,6 +72,14 @@ def authenticate(database_path, email, password, now=None):
     return user
 
 
+def google_login(database_path, email):
+    """Só entra pelo Google quem já tem conta ativa com o mesmo e-mail."""
+    user = repository.find_user(database_path, normalize_email(email))
+    if not user or not user["is_active"]:
+        raise ServiceError("Conta Google sem cadastro ativo no Acervo.", 403)
+    return user
+
+
 def get_users(database_path):
     return repository.list_users(database_path)
 

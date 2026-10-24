@@ -31,6 +31,10 @@ def create_app(test_config=None, allow_ephemeral_secret=False):
         # Duração máxima desde o login e tempo máximo sem uso, em segundos.
         SESSION_MAX_AGE=int(os.environ.get("SESSION_MAX_AGE") or 12 * 60 * 60),
         SESSION_IDLE_TIMEOUT=int(os.environ.get("SESSION_IDLE_TIMEOUT") or 30 * 60),
+        # Login com Google: fica ativo só com as três configurações preenchidas.
+        GOOGLE_CLIENT_ID=os.environ.get("GOOGLE_CLIENT_ID", ""),
+        GOOGLE_CLIENT_SECRET=os.environ.get("GOOGLE_CLIENT_SECRET", ""),
+        GOOGLE_REDIRECT_URI=os.environ.get("GOOGLE_REDIRECT_URI", ""),
     )
     if test_config:
         app.config.update(test_config)

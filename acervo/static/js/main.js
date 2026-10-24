@@ -1,6 +1,6 @@
 import { $, $$ } from "./dom.js";
 import { api, notify } from "./api.js";
-import { bindAuth, prepareLogin, showApplication } from "./auth.js";
+import { bindAuth, prepareLogin, setGoogleLogin, showApplication, showGoogleLoginError } from "./auth.js";
 import { bindNavigation } from "./navigation.js";
 import { bindStudents } from "./students.js";
 import { bindStudentDetail, openStudent } from "./student-detail.js";
@@ -42,6 +42,8 @@ async function initialize() {
   prepareLogin();
   try {
     const session = await api("/api/auth/session");
+    setGoogleLogin(Boolean(session.google_enabled));
+    showGoogleLoginError();
     if (session.authenticated) showApplication(session.email, session.is_admin);
   } catch (error) {
     notify(error.message, "error");

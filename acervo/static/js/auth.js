@@ -4,6 +4,29 @@ import { api, notify } from "./api.js";
 import { setMenuExpanded } from "./navigation.js";
 import { refreshStudents } from "./students.js";
 
+const GOOGLE_LOGIN_ERRORS = {
+  cancelado: "Login com Google cancelado.",
+  sessao: "A tentativa de login com Google expirou. Tente novamente.",
+  dominio: "Use uma conta Google @ifc.edu.br.",
+  conta: "Esta conta Google não tem acesso ao Acervo. Fale com um administrador para cadastrar seu e-mail.",
+  google: "Não foi possível concluir o login com Google. Tente novamente.",
+};
+
+export function setGoogleLogin(enabled) {
+  $("#google-login-button").hidden = !enabled;
+  $("#google-login-divider").hidden = !enabled;
+}
+
+// O retorno do Google chega como /?login_error=código; mostra o aviso e limpa a URL.
+export function showGoogleLoginError() {
+  const url = new URL(window.location.href);
+  const code = url.searchParams.get("login_error");
+  if (!code) return;
+  notify(GOOGLE_LOGIN_ERRORS[code] || GOOGLE_LOGIN_ERRORS.google, "error");
+  url.searchParams.delete("login_error");
+  window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+}
+
 export function prepareLogin() {
   elements.authTitle.textContent = "Boas-vindas";
   elements.authIntro.textContent = "Entre com seu e-mail institucional para continuar.";
