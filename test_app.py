@@ -2091,7 +2091,7 @@ class LibraryAppTest(unittest.TestCase):
         self.assertIn(b'data-view="loans"', page.data)
         self.assertIn(b'<section class="view view--loans" id="loans-view">', page.data)
         self.assertIn(b'<section class="view view--dashboard" id="dashboard-view" hidden>', page.data)
-        self.assertIn('Empréstimos'.encode(), page.data)
+        self.assertIn('Entrega e devolução</h1>'.encode(), page.data)
         self.assertIn(b'id="open-loans-button"', page.data)
         self.assertIn(b'data-student-status="completed"', page.data)
         self.assertIn(b'data-student-status="archived"', page.data)
