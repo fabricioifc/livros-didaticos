@@ -285,11 +285,27 @@ th:first-child, td:first-child { padding-left: 2px; }
 .book-form-actions .button { min-height: 40px; }
 .book-row-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
 .book-row-actions .button { min-height: 30px; padding: 0 10px; font-size: 10px; }
-#books-table tr.is-inactive td:not(:last-child) { opacity: .55; }
+#books-table tr.is-inactive td:first-child { color: #8f9891; }
+.books-toolbar { margin-top: 4px; }
+/* Cores da aplicação: reaproveitam as variáveis de .course-pill. O filtro
+   não usa .course-filter, que é preenchido com os cursos por courses.js. */
+.book-app-filter .filter-chip { display: inline-flex; align-items: center; gap: 5px; }
+.book-app-filter .filter-chip[class*="book-app-"]::before { width: 7px; height: 7px; border-radius: 50%; background: var(--course-color); content: ""; flex: 0 0 7px; }
+.book-app-single { --course-color: #3e79a4; --course-bg: #eaf2f8; --course-text: #315f82; }
+.book-app-1 { --course-color: #347653; --course-bg: #e9f4ec; --course-text: #286343; }
+.book-app-2 { --course-color: #bd762d; --course-bg: #fbf1e6; --course-text: #8d5720; }
+.book-app-3 { --course-color: #6c60a6; --course-bg: #f0eef8; --course-text: #554988; }
+.book-app-filter .filter-chip[class*="book-app-"] { color: var(--course-text); }
+.book-app-filter .filter-chip[class*="book-app-"].is-selected { border-color: var(--course-color); background: var(--course-bg); }
+.status-pill--inactive { background: #f9ecec; color: #a2554d; }
 .managed-user-form .field-label { margin-top: 0; }
 .managed-user-form .text-input, .user-management-card .text-input { height: 40px; }
 .school-year-settings-card .card-heading { margin-bottom: 15px; }
-.admin-tabs { margin: -5px 0 18px; display: flex; gap: 5px; border-bottom: 1px solid #e7ece8; }
+.admin-tabs { margin: -5px 0 18px; display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; border-bottom: 1px solid #e7ece8; }
+.admin-tab-group { display: flex; align-items: flex-end; gap: 5px; }
+/* Ano letivo e backup afetam todo o sistema: ficam à direita, separados dos cadastros. */
+.admin-tab-group--system { padding-left: 18px; border-left: 1px solid #e7ece8; }
+.admin-tab-group-label { align-self: center; margin-right: 4px; color: #a4aca6; font-size: 8px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
 .admin-tab { position: relative; padding: 10px 14px 12px; border: 0; background: transparent; color: #7d8781; font-size: 11px; font-weight: 600; }
 .admin-tab:hover { color: var(--green-text); }
 .admin-tab.is-active { color: var(--green-text); }
@@ -470,6 +486,11 @@ dialog[open].dialog--detail { display: flex; flex-direction: column; }
   .book-row { grid-template-columns: minmax(190px, 1fr) 160px 150px; gap: 8px; }
 }
 @media (max-width: 760px) {
+  /* No celular, os grupos ficam em linhas próprias para não esconder abas. */
+  .admin-tabs { align-items: stretch; flex-direction: column; gap: 0; }
+  .admin-tab-group--system { padding-left: 0; border-top: 1px solid #e7ece8; border-left: 0; }
+  .admin-tab-group-label { min-width: 62px; }
+  .admin-tab { flex: 0 0 auto; padding: 10px 9px 12px; }
   body { min-width: 320px; }
   .auth-screen { grid-template-columns: 1fr; }
   .auth-brand { display: none; }
@@ -681,6 +702,12 @@ dialog[open].dialog--detail { display: flex; flex-direction: column; }
 :root[data-theme="dark"] .status-pill--complete { background: #1c211d; color: #92b29a; }
 :root[data-theme="dark"] .status-pill--progress { background: #262016; color: #b39771; }
 :root[data-theme="dark"] .status-pill--muted { background: #1a201c; color: #7a827c; }
+:root[data-theme="dark"] .status-pill--inactive { background: #241818; color: #c58b90; }
+:root[data-theme="dark"] .book-app-single { --course-color: #5894c0; --course-bg: #181f25; --course-text: #96b7d0; }
+:root[data-theme="dark"] .book-app-1 { --course-color: #60b98a; --course-bg: #1c231e; --course-text: #afd9c2; }
+:root[data-theme="dark"] .book-app-2 { --course-color: #d38d46; --course-bg: #281f16; --course-text: #ddb68e; }
+:root[data-theme="dark"] .book-app-3 { --course-color: #776cad; --course-bg: #1b1923; --course-text: #988fbd; }
+:root[data-theme="dark"] #books-table tr.is-inactive td:first-child { color: #7a827c; }
 :root[data-theme="dark"] .row-action { color: #939e99; }
 :root[data-theme="dark"] .row-action:hover { background: #1a201c; color: #9ec7ab; }
 :root[data-theme="dark"] .table-footer { border-top: 1px solid #2f322f; color: #6e7870; }
@@ -694,6 +721,8 @@ dialog[open].dialog--detail { display: flex; flex-direction: column; }
 :root[data-theme="dark"] .button--secondary:hover { border-color: #3f4941; background: #181d19; }
 :root[data-theme="dark"] .app-footer { color: #6c756e; }
 :root[data-theme="dark"] .admin-tabs { border-bottom: 1px solid #333834; }
+:root[data-theme="dark"] .admin-tab-group--system { border-left-color: #333834; border-top-color: #333834; }
+:root[data-theme="dark"] .admin-tab-group-label { color: #6f7872; }
 :root[data-theme="dark"] .admin-tab { color: #8d9490; }
 :root[data-theme="dark"] .school-year-confirm { color: #99a29a; }
 :root[data-theme="dark"] .school-year-backup-status { border-color: #35463a; background: #1a211c; color: #bac9be; }

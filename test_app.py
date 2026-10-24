@@ -1838,6 +1838,8 @@ class LibraryAppTest(unittest.TestCase):
         self.assertIn(b'id="admin-panel-backups"', page.data)
         self.assertIn(b'id="admin-panel-books"', page.data)
         self.assertIn(b'id="book-form"', page.data)
+        self.assertIn(b'id="books-application-filter"', page.data)
+        self.assertIn(b'id="books-page-label"', page.data)
         self.assertIn(b'id="backup-restore-form"', page.data)
         self.assertIn(b'id="course-form"', page.data)
         self.assertIn(b'id="course-abbreviation"', page.data)

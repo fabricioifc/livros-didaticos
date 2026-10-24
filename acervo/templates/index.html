@@ -144,11 +144,17 @@
           <div><span class="eyebrow">ADMINISTRAÇÃO</span><h1>Administração</h1><p>Gerencie cursos, livros, contas de servidores, permissões de acesso e backups.</p></div>
         </div>
         <div class="admin-tabs" role="tablist" aria-label="Seções de administração">
-          <button class="admin-tab is-active" id="admin-tab-courses" role="tab" aria-selected="true" aria-controls="admin-panel-courses" data-admin-tab="courses" type="button">Cursos</button>
-          <button class="admin-tab" id="admin-tab-books" role="tab" aria-selected="false" aria-controls="admin-panel-books" data-admin-tab="books" type="button">Livros</button>
-          <button class="admin-tab" id="admin-tab-school-year" role="tab" aria-selected="false" aria-controls="admin-panel-school-year" data-admin-tab="school-year" type="button">Ano letivo</button>
-          <button class="admin-tab" id="admin-tab-users" role="tab" aria-selected="false" aria-controls="admin-panel-users" data-admin-tab="users" type="button">Usuários</button>
-          <button class="admin-tab" id="admin-tab-backups" role="tab" aria-selected="false" aria-controls="admin-panel-backups" data-admin-tab="backups" type="button">Backup</button>
+          <div class="admin-tab-group" role="presentation">
+            <span class="admin-tab-group-label" aria-hidden="true">Cadastros</span>
+            <button class="admin-tab is-active" id="admin-tab-courses" role="tab" aria-selected="true" aria-controls="admin-panel-courses" data-admin-tab="courses" type="button">Cursos</button>
+            <button class="admin-tab" id="admin-tab-books" role="tab" aria-selected="false" aria-controls="admin-panel-books" data-admin-tab="books" type="button">Livros</button>
+            <button class="admin-tab" id="admin-tab-users" role="tab" aria-selected="false" aria-controls="admin-panel-users" data-admin-tab="users" type="button">Usuários</button>
+          </div>
+          <div class="admin-tab-group admin-tab-group--system" role="presentation">
+            <span class="admin-tab-group-label" aria-hidden="true">Sistema</span>
+            <button class="admin-tab" id="admin-tab-school-year" role="tab" aria-selected="false" aria-controls="admin-panel-school-year" data-admin-tab="school-year" type="button">Ano letivo</button>
+            <button class="admin-tab" id="admin-tab-backups" role="tab" aria-selected="false" aria-controls="admin-panel-backups" data-admin-tab="backups" type="button">Backup</button>
+          </div>
         </div>
         <div class="admin-panel" id="admin-panel-courses" role="tabpanel" aria-labelledby="admin-tab-courses">
         <div class="content-card user-management-card">
@@ -170,8 +176,17 @@
             <div><label class="field-label" for="book-grade">Aplicação</label><select class="text-input" id="book-grade" name="grade"><option value="">Volume único (1º ao 3º ano)</option><option value="1º">Somente 1º ano</option><option value="2º">Somente 2º ano</option><option value="3º">Somente 3º ano</option></select></div>
             <div class="book-form-actions"><button class="text-button" id="book-cancel-edit" type="button" hidden>Cancelar edição</button><button class="button button--primary" id="book-submit" type="submit">Cadastrar livro</button></div>
           </form>
+          <div class="table-toolbar books-toolbar"><label class="search-box"><span class="search-icon"></span><input id="books-search" type="search" placeholder="Buscar por título" aria-label="Buscar livro por título"></label><div class="student-filter-groups"><div class="grade-filter book-app-filter" id="books-application-filter" aria-label="Filtrar por aplicação"><button class="filter-chip is-selected" data-book-application="all" type="button">Todas</button><button class="filter-chip book-app-single" data-book-application="single" type="button">Volume único</button><button class="filter-chip book-app-1" data-book-application="1º" type="button">1º ano</button><button class="filter-chip book-app-2" data-book-application="2º" type="button">2º ano</button><button class="filter-chip book-app-3" data-book-application="3º" type="button">3º ano</button></div><div class="grade-filter" id="books-status-filter" aria-label="Filtrar por status"><button class="filter-chip is-selected" data-book-status="all" type="button">Todos</button><button class="filter-chip" data-book-status="active" type="button">Ativos</button><button class="filter-chip" data-book-status="inactive" type="button">Inativos</button></div></div></div>
           <div class="table-scroll"><table><thead><tr><th>TÍTULO</th><th>APLICAÇÃO</th><th>STATUS</th><th></th></tr></thead><tbody id="books-table"></tbody></table></div>
-          <div class="empty-state" id="books-empty" hidden><strong>Nenhum livro cadastrado</strong></div>
+          <div class="empty-state" id="books-empty" hidden><strong id="books-empty-title">Nenhum livro cadastrado</strong></div>
+          <div class="table-footer">
+            <span id="books-count">0 livros</span>
+            <nav class="pagination" aria-label="Paginação de livros">
+              <button id="books-previous" type="button" aria-label="Página anterior">Anterior</button>
+              <span id="books-page-label" aria-live="polite">Página 1 de 1</span>
+              <button id="books-next" type="button" aria-label="Próxima página">Próxima</button>
+            </nav>
+          </div>
         </div>
         </div>
         <div class="admin-panel" id="admin-panel-school-year" role="tabpanel" aria-labelledby="admin-tab-school-year" hidden>

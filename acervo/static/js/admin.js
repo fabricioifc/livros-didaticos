@@ -55,24 +55,58 @@ export async function toggleCourse(row) {
 
 const BOOK_APPLICATIONS = { "1º": "Somente 1º ano", "2º": "Somente 2º ano", "3º": "Somente 3º ano" };
 
+const BOOKS_PAGE_SIZE = 10;
+
 function bookApplication(book) {
   return BOOK_APPLICATIONS[book.grade] || "Volume único";
 }
 
+function bookApplicationClass(book) {
+  return book.grade ? `book-app-${book.grade[0]}` : "book-app-single";
+}
+
+function filteredBooks() {
+  const query = state.booksQuery.trim().toLocaleLowerCase("pt-BR");
+  return state.books.filter((book) =>
+    (!query || book.title.toLocaleLowerCase("pt-BR").includes(query))
+    && (state.booksApplication === "all" || (book.grade || "single") === state.booksApplication)
+    && (state.booksStatus === "all" || book.is_active === (state.booksStatus === "active"))
+  );
+}
+
 function renderManagedBooks() {
-  $("#books-table").innerHTML = state.books.map((book) => `
+  const books = filteredBooks();
+  const pageCount = Math.max(1, Math.ceil(books.length / BOOKS_PAGE_SIZE));
+  state.booksPage = Math.min(state.booksPage, pageCount);
+  const firstItem = (state.booksPage - 1) * BOOKS_PAGE_SIZE;
+  $("#books-table").innerHTML = books.slice(firstItem, firstItem + BOOKS_PAGE_SIZE).map((book) => `
     <tr data-book-id="${book.id}" class="${book.is_active ? "" : "is-inactive"}">
       <td>${escapeHtml(book.title)}</td>
-      <td>${bookApplication(book)}</td>
-      <td>${book.is_active ? "Ativo" : "Inativo"}</td>
+      <td><span class="course-pill ${bookApplicationClass(book)}">${bookApplication(book)}</span></td>
+      <td><span class="status-pill ${book.is_active ? "status-pill--complete" : "status-pill--inactive"}"><i></i>${book.is_active ? "Ativo" : "Inativo"}</span></td>
       <td><div class="book-row-actions">
         <button class="button button--secondary" data-book-action="edit" type="button">Editar</button>
         <button class="button button--secondary" data-book-action="toggle" type="button">${book.is_active ? "Desativar" : "Reativar"}</button>
         <button class="button button--danger-quiet" data-book-action="delete" type="button" ${book.is_used ? 'disabled title="Livro com entregas registradas: desative-o em vez de excluir."' : ""}>Excluir</button>
       </div></td>
     </tr>`).join("");
-  $("#books-empty").hidden = state.books.length > 0;
-  $("#books-table").closest(".table-scroll").hidden = state.books.length === 0;
+  $("#books-empty").hidden = books.length > 0;
+  $("#books-empty-title").textContent = state.books.length ? "Nenhum livro encontrado com esses filtros" : "Nenhum livro cadastrado";
+  $("#books-table").closest(".table-scroll").hidden = books.length === 0;
+  const total = state.books.length;
+  $("#books-count").textContent = books.length
+    ? `Mostrando ${firstItem + 1}–${Math.min(firstItem + BOOKS_PAGE_SIZE, books.length)} de ${books.length} ${books.length === 1 ? "livro" : "livros"}${books.length < total ? ` (${total} no catálogo)` : ""}`
+    : `0 de ${total} livros`;
+  $("#books-page-label").textContent = `Página ${state.booksPage} de ${pageCount}`;
+  $("#books-previous").disabled = state.booksPage === 1;
+  $("#books-next").disabled = state.booksPage === pageCount;
+}
+
+function selectBookFilter(container, button, key, value) {
+  container.querySelectorAll(".filter-chip").forEach((chip) => chip.classList.toggle("is-selected", chip === button));
+  state[key] = value;
+  state.booksPage = 1;
+  renderManagedBooks();
 }
 
 export async function loadManagedBooks() {
@@ -254,6 +288,27 @@ export function bindAdmin() {
     }
   });
   $("#book-cancel-edit").addEventListener("click", resetBookForm);
+  $("#books-search").addEventListener("input", (event) => {
+    state.booksQuery = event.target.value;
+    state.booksPage = 1;
+    renderManagedBooks();
+  });
+  $("#books-application-filter").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-book-application]");
+    if (button) selectBookFilter(event.currentTarget, button, "booksApplication", button.dataset.bookApplication);
+  });
+  $("#books-status-filter").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-book-status]");
+    if (button) selectBookFilter(event.currentTarget, button, "booksStatus", button.dataset.bookStatus);
+  });
+  $("#books-previous").addEventListener("click", () => {
+    state.booksPage = Math.max(1, state.booksPage - 1);
+    renderManagedBooks();
+  });
+  $("#books-next").addEventListener("click", () => {
+    state.booksPage += 1;
+    renderManagedBooks();
+  });
   $("#books-table").addEventListener("click", (event) => {
     const button = event.target.closest("[data-book-action]");
     if (button) handleBookAction(button);
