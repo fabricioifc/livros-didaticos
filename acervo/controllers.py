@@ -529,7 +529,12 @@ def import_students():
 @main.get("/api/students/import-template")
 @admin_required
 def download_import_template():
-    template = "\ufeffmatricula;nome;turma;curso\r\n;;;\r\n;;;\r\n"
+    # Linhas de exemplo: devem ser substitu\u00eddas pelos estudantes reais antes de importar.
+    template = (
+        "\ufeffmatricula;nome;turma;curso\r\n"
+        "2026000001;Estudante Exemplo Administra\u00e7\u00e3o;1\u00ba;T\u00e9cnico em Administra\u00e7\u00e3o Integrado ao Ensino M\u00e9dio\r\n"
+        "2026000002;Estudante Exemplo Inform\u00e1tica;1\u00ba;T\u00e9cnico em Inform\u00e1tica Integrado ao Ensino M\u00e9dio\r\n"
+    )
     return Response(
         template,
         mimetype="text/csv",

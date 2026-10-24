@@ -1681,7 +1681,15 @@ class LibraryAppTest(unittest.TestCase):
             headers={"X-CSRF-Token": self.csrf()},
         )
         self.assertEqual(imported.status_code, 200)
-        self.assertEqual(imported.get_json()["imported"], 0)
+        self.assertEqual(imported.get_json()["imported"], 2)
+        self.assertEqual(imported.get_json()["invalid"], 0)
+        students = {
+            student["enrollment"]: student
+            for student in self.client.get("/api/students").get_json()["students"]
+        }
+        self.assertEqual(students["2026000001"]["course_id"], self.administration_course_id)
+        self.assertEqual(students["2026000002"]["course_id"], self.informatics_course_id)
+        self.assertEqual({students[key]["grade"] for key in students}, {"1º"})
 
     def test_checkout_return_and_pdf_data_are_persisted(self):
         self.login()
