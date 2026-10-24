@@ -1,10 +1,14 @@
 import csv
 import io
+import os
 import re
 import sqlite3
+import tempfile
 import time
 import unicodedata
+import uuid
 import zipfile
+from pathlib import Path
 
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -16,6 +20,10 @@ class ServiceError(Exception):
     def __init__(self, message, status):
         super().__init__(message)
         self.status = status
+
+
+MAX_BACKUP_UPLOAD_BYTES = 64 * 1024 * 1024
+BACKUP_FILENAME_PATTERN = r"backup-[0-9]{4}-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{8}\.sqlite3"
 
 
 def _is_valid_enrollment(enrollment):
@@ -186,7 +194,7 @@ def update_course(database_path, course_id, body):
     return repository.find_course(database_path, course_id)
 
 
-def update_school_year(database_path, value, current_year):
+def update_school_year(database_path, backup_directory, value, current_year):
     if isinstance(value, bool) or not isinstance(value, int) or not 1900 <= value <= 2100:
         raise ServiceError("Informe um ano letivo válido entre 1900 e 2100.", 400)
     if value < current_year:
@@ -195,6 +203,12 @@ def update_school_year(database_path, value, current_year):
             "arquivamentos já criados não podem ser desfeitos.",
             409,
         )
+    backup = None
+    if value > current_year:
+        try:
+            backup = create_database_backup(database_path, backup_directory, current_year)
+        except ServiceError as error:
+            raise ServiceError(f"{error} O ano letivo não foi alterado.", error.status) from error
     try:
         result = repository.update_school_year(database_path, value)
     except ValueError as error:
@@ -204,7 +218,107 @@ def update_school_year(database_path, value, current_year):
             "O ano letivo já foi atualizado por outra solicitação. Atualize a página.",
             409,
         )
-    return value
+    return value, backup
+
+
+def create_database_backup(database_path, backup_directory, school_year):
+    filename = (
+        f"backup-{school_year}-{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}-"
+        f"{uuid.uuid4().hex[:8]}.sqlite3"
+    )
+    try:
+        repository.create_database_backup(database_path, backup_directory, filename)
+    except (OSError, sqlite3.Error, ValueError) as error:
+        raise ServiceError(
+            "Não foi possível criar e validar o backup completo.",
+            500,
+        ) from error
+    return {"filename": filename, "created_at": now_iso()}
+
+
+def list_database_backups(backup_directory):
+    backup_directory = Path(backup_directory)
+    if not backup_directory.is_dir():
+        return []
+    backups = []
+    for path in backup_directory.iterdir():
+        if not path.is_file() or not re.fullmatch(BACKUP_FILENAME_PATTERN, path.name):
+            continue
+        stat = path.stat()
+        backups.append(
+            {
+                "filename": path.name,
+                "size": stat.st_size,
+                "created_at": time.strftime(
+                    "%Y-%m-%dT%H:%M:%SZ", time.gmtime(stat.st_mtime)
+                ),
+            }
+        )
+    return sorted(backups, key=lambda backup: backup["created_at"], reverse=True)
+
+
+def restore_database_backup(database_path, backup_directory, uploaded_file, filename, school_year):
+    if not isinstance(filename, str) or Path(filename).suffix.lower() not in {
+        ".sqlite",
+        ".sqlite3",
+        ".db",
+    }:
+        raise ServiceError("Selecione um arquivo SQLite de backup.", 400)
+
+    backup_directory = Path(backup_directory)
+    try:
+        backup_directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+        descriptor, temporary_name = tempfile.mkstemp(
+            prefix=".restore-", suffix=".sqlite3", dir=backup_directory
+        )
+    except OSError as error:
+        raise ServiceError("Não foi possível preparar a restauração do backup.", 500) from error
+
+    temporary_path = Path(temporary_name)
+    try:
+        size = 0
+        with os.fdopen(descriptor, "wb") as temporary_file:
+            while chunk := uploaded_file.read(1024 * 1024):
+                size += len(chunk)
+                if size > MAX_BACKUP_UPLOAD_BYTES:
+                    raise ServiceError("O backup excede o limite de 64 MB.", 413)
+                temporary_file.write(chunk)
+        if size == 0:
+            raise ServiceError("O arquivo de backup está vazio.", 400)
+        try:
+            repository.validate_database_backup(temporary_path)
+        except (sqlite3.Error, ValueError) as error:
+            raise ServiceError(
+                f"Backup inválido ou incompatível: {error}",
+                400,
+            ) from error
+
+        safety_backup = create_database_backup(
+            database_path, backup_directory, school_year
+        )
+        safety_backup_path = backup_directory / safety_backup["filename"]
+        try:
+            repository.restore_database_backup(database_path, temporary_path)
+            # Aplica as migrações a backups criados por versões anteriores.
+            repository.initialize_db(database_path, school_year)
+        except (OSError, sqlite3.Error) as error:
+            try:
+                repository.restore_database_backup(database_path, safety_backup_path)
+            except (OSError, sqlite3.Error) as rollback_error:
+                raise ServiceError(
+                    "A restauração falhou e não foi possível recuperar automaticamente "
+                    "o banco anterior. O backup de segurança está disponível para "
+                    f"restauração manual: {safety_backup['filename']}.",
+                    500,
+                ) from rollback_error
+            raise ServiceError(
+                "A restauração falhou; o banco anterior foi recuperado. "
+                f"Backup de segurança: {safety_backup['filename']}.",
+                500,
+            ) from error
+        return safety_backup
+    finally:
+        temporary_path.unlink(missing_ok=True)
 
 
 def create_student(database_path, body, school_year):

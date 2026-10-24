@@ -6,6 +6,7 @@
 /livros.db-wal
 /livros-backup*.db
 /livros.db*
+/backups/
 __pycache__/
 data/
 data-dev/

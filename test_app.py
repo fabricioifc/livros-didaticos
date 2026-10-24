@@ -1,5 +1,6 @@
 import base64
 import json
+from contextlib import closing
 from io import BytesIO
 import sqlite3
 import tempfile
@@ -158,6 +159,37 @@ class LibraryAppTest(unittest.TestCase):
         )
         self.assertEqual(updated.status_code, 200)
         self.assertEqual(updated.get_json()["school_year"], 2028)
+        backup = updated.get_json()["backup"]
+        self.assertIsNotNone(backup)
+        self.assertRegex(
+            backup["filename"],
+            r"^backup-2026-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{8}\.sqlite3$",
+        )
+        backup_path = Path(self.app.config["BACKUP_PATH"]) / backup["filename"]
+        self.assertTrue(backup_path.is_file())
+        with closing(sqlite3.connect(backup_path)) as backup_db:
+            self.assertEqual(
+                backup_db.execute(
+                    "SELECT value FROM application_settings WHERE key = 'school_year'"
+                ).fetchone()[0],
+                "2026",
+            )
+            self.assertEqual(
+                backup_db.execute("SELECT COUNT(*) FROM students").fetchone()[0],
+                1,
+            )
+            self.assertEqual(
+                backup_db.execute("PRAGMA integrity_check").fetchone()[0],
+                "ok",
+            )
+        downloaded_backup = admin.get(f"/api/backups/{backup['filename']}")
+        self.assertEqual(downloaded_backup.status_code, 200)
+        self.assertEqual(downloaded_backup.data, backup_path.read_bytes())
+        downloaded_backup.close()
+        self.assertEqual(
+            self.client.get(f"/api/backups/{backup['filename']}").status_code,
+            403,
+        )
         self.assertEqual(
             admin.get("/api/students").get_json()["school_year"],
             2028,
@@ -217,6 +249,168 @@ class LibraryAppTest(unittest.TestCase):
         self.assertEqual(self.app.config["SCHOOL_YEAR"], 2028)
         self.login()
         self.assertEqual(self.client.get("/api/students").get_json()["school_year"], 2028)
+
+    def test_school_year_advance_is_cancelled_when_backup_fails(self):
+        create_user(
+            self.app.config["DATABASE_PATH"],
+            "fabricio.bizotto@ifc.edu.br",
+            "senha-admin-segura",
+        )
+        admin = self.app.test_client()
+        csrf = admin.get("/api/auth/session").get_json()["csrf_token"]
+        login = admin.post(
+            "/api/auth/login",
+            json={
+                "email": "fabricio.bizotto@ifc.edu.br",
+                "password": "senha-admin-segura",
+            },
+            headers={"X-CSRF-Token": csrf},
+        )
+        self.assertEqual(login.status_code, 200)
+        blocked_backup_path = Path(self.temp_dir.name) / "not-a-directory"
+        blocked_backup_path.write_text("not a directory", encoding="utf-8")
+        self.app.config["BACKUP_PATH"] = str(blocked_backup_path)
+
+        response = admin.post(
+            "/api/settings/school-year",
+            json={"school_year": 2027},
+            headers={"X-CSRF-Token": login.get_json()["csrf_token"]},
+        )
+
+        self.assertEqual(response.status_code, 500)
+        self.assertIn("backup completo", response.get_json()["error"])
+        self.assertEqual(
+            repository.get_school_year(self.app.config["DATABASE_PATH"], 2026),
+            2026,
+        )
+
+    def admin_client(self):
+        database_path = self.app.config["DATABASE_PATH"]
+        if not repository.find_user(database_path, "fabricio.bizotto@ifc.edu.br"):
+            create_user(database_path, "fabricio.bizotto@ifc.edu.br", "senha-admin-segura")
+        admin = self.app.test_client()
+        csrf = admin.get("/api/auth/session").get_json()["csrf_token"]
+        login = admin.post(
+            "/api/auth/login",
+            json={
+                "email": "fabricio.bizotto@ifc.edu.br",
+                "password": "senha-admin-segura",
+            },
+            headers={"X-CSRF-Token": csrf},
+        )
+        self.assertEqual(login.status_code, 200)
+        return admin, login.get_json()["csrf_token"]
+
+    def create_test_student(self, client, csrf, enrollment, name):
+        created = client.post(
+            "/api/students",
+            json={"name": name, "enrollment": enrollment, "grade": "1º", "course_id": self.informatics_course_id},
+            headers={"X-CSRF-Token": csrf},
+        )
+        self.assertEqual(created.status_code, 201)
+
+    def test_admin_creates_lists_and_downloads_manual_backup(self):
+        admin, csrf = self.admin_client()
+        self.assertEqual(admin.get("/api/backups").get_json()["backups"], [])
+        self.assertEqual(admin.post("/api/backups").status_code, 403)
+
+        created = admin.post("/api/backups", headers={"X-CSRF-Token": csrf})
+        self.assertEqual(created.status_code, 201)
+        backup = created.get_json()["backup"]
+        self.assertRegex(
+            backup["filename"],
+            r"^backup-2026-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{8}\.sqlite3$",
+        )
+        backup_path = Path(self.app.config["BACKUP_PATH"]) / backup["filename"]
+        listed = admin.get("/api/backups").get_json()["backups"]
+        self.assertEqual([item["filename"] for item in listed], [backup["filename"]])
+        self.assertEqual(listed[0]["size"], backup_path.stat().st_size)
+        downloaded = admin.get(f"/api/backups/{backup['filename']}")
+        self.assertEqual(downloaded.data, backup_path.read_bytes())
+        downloaded.close()
+
+        self.login()
+        self.assertEqual(self.client.get("/api/backups").status_code, 403)
+        self.assertEqual(
+            self.client.post("/api/backups", headers={"X-CSRF-Token": self.csrf()}).status_code,
+            403,
+        )
+
+    def test_admin_restores_backup_and_sessions_are_closed(self):
+        admin, csrf = self.admin_client()
+        self.create_test_student(admin, csrf, "2026000011", "Estudante do backup")
+        backup = admin.post("/api/backups", headers={"X-CSRF-Token": csrf}).get_json()["backup"]
+        backup_bytes = (Path(self.app.config["BACKUP_PATH"]) / backup["filename"]).read_bytes()
+        self.create_test_student(admin, csrf, "2026000012", "Estudante posterior")
+        self.login()
+
+        restored = admin.post(
+            "/api/backups/restore",
+            data={"backup": (BytesIO(backup_bytes), "meu-backup.sqlite3")},
+            headers={"X-CSRF-Token": csrf},
+            content_type="multipart/form-data",
+        )
+
+        self.assertEqual(restored.status_code, 200, restored.get_json())
+        safety_backup = restored.get_json()["safety_backup"]["filename"]
+        with closing(sqlite3.connect(Path(self.app.config["BACKUP_PATH"]) / safety_backup)) as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM students").fetchone()[0], 2)
+        self.assertEqual(admin.get("/api/students").status_code, 401)
+        self.assertEqual(self.client.get("/api/students").status_code, 401)
+
+        admin, _ = self.admin_client()
+        enrollments = [student["enrollment"] for student in admin.get("/api/students").get_json()["students"]]
+        self.assertEqual(enrollments, ["2026000011"])
+        listed = [item["filename"] for item in admin.get("/api/backups").get_json()["backups"]]
+        self.assertIn(safety_backup, listed)
+
+    def test_restore_accepts_backup_larger_than_default_upload_limit(self):
+        admin, csrf = self.admin_client()
+        backup = admin.post("/api/backups", headers={"X-CSRF-Token": csrf}).get_json()["backup"]
+        large_backup = Path(self.temp_dir.name) / "large.sqlite3"
+        large_backup.write_bytes((Path(self.app.config["BACKUP_PATH"]) / backup["filename"]).read_bytes())
+        with closing(sqlite3.connect(large_backup)) as db:
+            db.execute("CREATE TABLE padding (data BLOB)")
+            db.execute("INSERT INTO padding VALUES (randomblob(3000000))")
+            db.commit()
+        self.assertGreater(large_backup.stat().st_size, self.app.config["MAX_CONTENT_LENGTH"])
+
+        restored = admin.post(
+            "/api/backups/restore",
+            data={"backup": (BytesIO(large_backup.read_bytes()), "large.sqlite3")},
+            headers={"X-CSRF-Token": csrf},
+            content_type="multipart/form-data",
+        )
+
+        self.assertEqual(restored.status_code, 200, restored.get_json())
+
+    def test_restore_rejects_invalid_files_without_changing_data(self):
+        admin, csrf = self.admin_client()
+        self.create_test_student(admin, csrf, "2026000013", "Estudante mantido")
+        incomplete = Path(self.temp_dir.name) / "incomplete.sqlite3"
+        with closing(sqlite3.connect(incomplete)) as db:
+            db.execute("CREATE TABLE students (enrollment TEXT)")
+            db.commit()
+        cases = [
+            (b"", "vazio.sqlite3", "vazio"),
+            (b"nao e sqlite", "texto.sqlite3", "inválido"),
+            (incomplete.read_bytes(), "incompleto.sqlite3", "backup completo"),
+            (incomplete.read_bytes(), "planilha.csv", "arquivo SQLite"),
+        ]
+        for content, filename, message in cases:
+            with self.subTest(filename=filename):
+                response = admin.post(
+                    "/api/backups/restore",
+                    data={"backup": (BytesIO(content), filename)},
+                    headers={"X-CSRF-Token": csrf},
+                    content_type="multipart/form-data",
+                )
+                self.assertEqual(response.status_code, 400)
+                self.assertIn(message, response.get_json()["error"])
+        missing = admin.post("/api/backups/restore", headers={"X-CSRF-Token": csrf})
+        self.assertEqual(missing.status_code, 400)
+        enrollments = [student["enrollment"] for student in admin.get("/api/students").get_json()["students"]]
+        self.assertEqual(enrollments, ["2026000013"])
 
     def test_dev_reset_removes_only_student_data_and_sets_year(self):
         self.login()
@@ -1299,6 +1493,8 @@ class LibraryAppTest(unittest.TestCase):
         self.assertNotIn(b"Gerar acesso do aluno", page.data)
         self.assertIn(b'id="admin-school-year-current"', page.data)
         self.assertIn(b'id="school-year-form"', page.data)
+        self.assertIn(b'id="admin-panel-backups"', page.data)
+        self.assertIn(b'id="backup-restore-form"', page.data)
         self.assertIn(b'id="course-form"', page.data)
         self.assertIn(b'id="course-abbreviation"', page.data)
         self.assertIn(b'role="tablist"', page.data)

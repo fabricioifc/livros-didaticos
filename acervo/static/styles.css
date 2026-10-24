@@ -295,6 +295,14 @@ th:first-child, td:first-child { padding-left: 2px; }
 .school-year-confirm { display: flex; align-items: center; gap: 8px; padding-bottom: 11px; color: #6c796e; font-size: 10px; line-height: 1.5; }
 .school-year-confirm input { accent-color: var(--green); }
 .school-year-form .button { min-height: 40px; }
+.school-year-backup-status { margin-top: 15px; padding: 11px 13px; border: 1px solid #dce9df; border-radius: 6px; background: #f4f8f5; color: #536b59; font-size: 11px; }
+.school-year-backup-status a { margin-left: 5px; color: var(--green-text); font-weight: 700; }
+.backup-card .card-heading { margin-bottom: 15px; }
+.backup-restore-form { display: grid; grid-template-columns: minmax(240px, 1fr) minmax(200px, auto) auto; align-items: end; gap: 14px; }
+.backup-restore-form .field-label { margin-top: 0; }
+.backup-restore-form .text-input { height: 40px; padding-top: 8px; }
+.backup-restore-form .button { min-height: 40px; }
+#backups-table .button { text-decoration: none; }
 .managed-user-admin { display: flex; align-items: center; gap: 7px; padding-bottom: 12px; color: #536158; font-size: 11px; white-space: nowrap; }
 .user-save-button { min-height: 34px; }
 .user-management-card th, .user-management-card td { padding: 8px 12px; }
@@ -480,6 +488,7 @@ dialog[open].dialog--detail { display: flex; flex-direction: column; }
   .course-management-form { grid-template-columns: 1fr; gap: 8px; }
   .school-year-form { grid-template-columns: 1fr; gap: 10px; }
   .school-year-confirm { padding-bottom: 0; }
+  .backup-restore-form { grid-template-columns: 1fr; gap: 10px; }
   .managed-user-admin { padding: 6px 0; }
   .metrics-grid { gap: 9px; }
   .metric-card { min-height: 110px; padding: 13px; }
@@ -679,6 +688,8 @@ dialog[open].dialog--detail { display: flex; flex-direction: column; }
 :root[data-theme="dark"] .admin-tabs { border-bottom: 1px solid #333834; }
 :root[data-theme="dark"] .admin-tab { color: #8d9490; }
 :root[data-theme="dark"] .school-year-confirm { color: #99a29a; }
+:root[data-theme="dark"] .school-year-backup-status { border-color: #35463a; background: #1a211c; color: #bac9be; }
+:root[data-theme="dark"] .school-year-backup-status a { color: #a9d2b6; }
 :root[data-theme="dark"] .managed-user-admin { color: #adb8b1; }
 :root[data-theme="dark"] .dialog { border: 1px solid #323732; background: #161b17; box-shadow: 0 24px 80px rgba(0, 0, 0, 0.42); }
 :root[data-theme="dark"] .dialog::backdrop { background: rgba(0, 0, 0, 0.60); }

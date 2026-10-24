@@ -1,5 +1,7 @@
+import os
 import sqlite3
-from contextlib import contextmanager
+import tempfile
+from contextlib import closing, contextmanager
 from pathlib import Path
 
 from .models import SHARED_BOOKS, book_list
@@ -233,6 +235,97 @@ def initialize_db(database_path, school_year):
                  )"""
         )
     return school_year
+
+
+def create_database_backup(database_path, backup_directory, filename):
+    backup_path = Path(backup_directory)
+    backup_path.mkdir(mode=0o700, parents=True, exist_ok=True)
+    temporary_descriptor, temporary_name = tempfile.mkstemp(
+        prefix=".backup-", suffix=".tmp", dir=backup_path
+    )
+    os.close(temporary_descriptor)
+    temporary_path = Path(temporary_name)
+    if Path(filename).name != filename:
+        temporary_path.unlink(missing_ok=True)
+        raise ValueError("Nome de arquivo de backup inválido.")
+    destination_path = backup_path / filename
+    try:
+        source = sqlite3.connect(database_path, timeout=30)
+        try:
+            destination = sqlite3.connect(temporary_path, timeout=30)
+            try:
+                source.backup(destination)
+                integrity = destination.execute("PRAGMA integrity_check").fetchone()
+                if not integrity or integrity[0] != "ok":
+                    raise sqlite3.DatabaseError(
+                        "A cópia do banco não passou na verificação de integridade."
+                    )
+            finally:
+                destination.close()
+        finally:
+            source.close()
+        os.chmod(temporary_path, 0o600)
+        os.replace(temporary_path, destination_path)
+    except Exception:
+        temporary_path.unlink(missing_ok=True)
+        raise
+    return destination_path
+
+
+def validate_database_backup(backup_path):
+    required_tables = {
+        "users",
+        "students",
+        "courses",
+        "application_settings",
+        "book_signatures",
+        "book_signature_history",
+        "student_years",
+        "student_year_books",
+        "student_status_history",
+    }
+    with closing(sqlite3.connect(backup_path, timeout=30)) as db:
+        db.row_factory = sqlite3.Row
+        integrity = db.execute("PRAGMA integrity_check").fetchone()
+        if not integrity or integrity[0] != "ok":
+            raise ValueError("O arquivo SQLite não passou na verificação de integridade.")
+        if db.execute("PRAGMA foreign_key_check").fetchone():
+            raise ValueError("O arquivo SQLite contém referências inválidas.")
+        tables = {
+            row["name"]
+            for row in db.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        }
+        if not required_tables.issubset(tables):
+            raise ValueError("O arquivo não contém um backup completo do Acervo IFC.")
+        columns = {
+            row["name"]
+            for row in db.execute("PRAGMA table_info(users)").fetchall()
+        }
+        if not {"email", "is_admin", "is_active", "session_version"}.issubset(columns):
+            raise ValueError("O arquivo não contém uma versão compatível do banco do Acervo IFC.")
+        admin = db.execute(
+            "SELECT 1 FROM users WHERE is_admin = 1 AND is_active = 1 LIMIT 1"
+        ).fetchone()
+        if not admin:
+            raise ValueError("O backup precisa conter ao menos um administrador ativo.")
+
+
+def restore_database_backup(database_path, backup_path):
+    with closing(sqlite3.connect(backup_path, timeout=30)) as source, closing(
+        sqlite3.connect(database_path, timeout=30)
+    ) as destination:
+        source.backup(destination)
+        destination.execute(
+            "UPDATE users SET session_version = session_version + 1"
+        )
+        integrity = destination.execute("PRAGMA integrity_check").fetchone()
+        if not integrity or integrity[0] != "ok":
+            raise sqlite3.DatabaseError("O banco restaurado não passou na verificação de integridade.")
+        if destination.execute("PRAGMA foreign_key_check").fetchone():
+            raise sqlite3.DatabaseError("O banco restaurado contém referências inválidas.")
+        destination.commit()
 
 
 def get_school_year(database_path, fallback):

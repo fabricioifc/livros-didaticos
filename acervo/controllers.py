@@ -1,4 +1,5 @@
 import hmac
+import re
 import secrets
 import time
 from functools import wraps
@@ -302,15 +303,91 @@ def update_school_year():
     if error:
         return error
     try:
-        school_year = services.update_school_year(
+        school_year, backup = services.update_school_year(
             current_app.config["DATABASE_PATH"],
+            current_app.config["BACKUP_PATH"],
             request_body().get("school_year"),
             current_app.config["SCHOOL_YEAR"],
         )
     except services.ServiceError as error:
+        if error.status >= 500:
+            current_app.logger.error("Falha ao avançar o ano letivo: %s", error)
         return handle_service_error(error)
     current_app.config["SCHOOL_YEAR"] = school_year
-    return jsonify({"school_year": school_year})
+    return jsonify({"school_year": school_year, "backup": backup})
+
+
+@main.get("/api/backups")
+@admin_required
+def list_backups():
+    return jsonify({"backups": services.list_database_backups(current_app.config["BACKUP_PATH"])})
+
+
+@main.post("/api/backups")
+@admin_required
+def create_backup():
+    error = csrf_error()
+    if error:
+        return error
+    try:
+        backup = services.create_database_backup(
+            current_app.config["DATABASE_PATH"],
+            current_app.config["BACKUP_PATH"],
+            current_app.config["SCHOOL_YEAR"],
+        )
+    except services.ServiceError as error:
+        current_app.logger.error("Falha ao criar backup: %s", error)
+        return handle_service_error(error)
+    return jsonify({"backup": backup}), 201
+
+
+@main.post("/api/backups/restore")
+@admin_required
+def restore_backup():
+    error = csrf_error()
+    if error:
+        return error
+    # O limite global protege as demais rotas; o banco completo pode ser maior.
+    request.max_content_length = services.MAX_BACKUP_UPLOAD_BYTES + 1024 * 1024
+    uploaded = request.files.get("backup")
+    if not uploaded:
+        return json_error("Selecione um arquivo SQLite de backup.", 400)
+    try:
+        safety_backup = services.restore_database_backup(
+            current_app.config["DATABASE_PATH"],
+            current_app.config["BACKUP_PATH"],
+            uploaded.stream,
+            uploaded.filename,
+            current_app.config["SCHOOL_YEAR"],
+        )
+    except services.ServiceError as error:
+        if error.status >= 500:
+            current_app.logger.error("Falha ao restaurar backup: %s", error)
+        return handle_service_error(error)
+    current_app.logger.warning(
+        "Banco restaurado por %s. Backup de segurança: %s",
+        g.user_email,
+        safety_backup["filename"],
+    )
+    # A restauração encerra todas as sessões, inclusive a atual.
+    reset_anonymous_session()
+    return jsonify({"safety_backup": safety_backup, "csrf_token": session["csrf_token"]})
+
+
+@main.get("/api/backups/<filename>")
+@admin_required
+def download_backup(filename):
+    if not re.fullmatch(services.BACKUP_FILENAME_PATTERN, filename):
+        return json_error("Backup não encontrado.", 404)
+    response = send_from_directory(
+        current_app.config["BACKUP_PATH"],
+        filename,
+        as_attachment=True,
+        mimetype="application/vnd.sqlite3",
+        max_age=0,
+    )
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @main.post("/api/students")

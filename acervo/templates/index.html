@@ -141,12 +141,13 @@
 
       <section class="view view--users" id="users-view" hidden>
         <div class="page-heading">
-          <div><span class="eyebrow">ADMINISTRAÇÃO</span><h1>Administração</h1><p>Gerencie cursos, contas de servidores e permissões de acesso.</p></div>
+          <div><span class="eyebrow">ADMINISTRAÇÃO</span><h1>Administração</h1><p>Gerencie cursos, contas de servidores, permissões de acesso e backups.</p></div>
         </div>
         <div class="admin-tabs" role="tablist" aria-label="Seções de administração">
           <button class="admin-tab is-active" id="admin-tab-courses" role="tab" aria-selected="true" aria-controls="admin-panel-courses" data-admin-tab="courses" type="button">Cursos</button>
           <button class="admin-tab" id="admin-tab-school-year" role="tab" aria-selected="false" aria-controls="admin-panel-school-year" data-admin-tab="school-year" type="button">Ano letivo</button>
           <button class="admin-tab" id="admin-tab-users" role="tab" aria-selected="false" aria-controls="admin-panel-users" data-admin-tab="users" type="button">Usuários</button>
+          <button class="admin-tab" id="admin-tab-backups" role="tab" aria-selected="false" aria-controls="admin-panel-backups" data-admin-tab="backups" type="button">Backup</button>
         </div>
         <div class="admin-panel" id="admin-panel-courses" role="tabpanel" aria-labelledby="admin-tab-courses">
         <div class="content-card user-management-card">
@@ -162,12 +163,16 @@
         </div>
         <div class="admin-panel" id="admin-panel-school-year" role="tabpanel" aria-labelledby="admin-tab-school-year" hidden>
         <div class="content-card user-management-card school-year-settings-card">
-          <div class="card-heading"><div><h2>Ano letivo</h2><p>Ano atual: <strong id="admin-school-year-current"></strong>. Avançar cria os ciclos e promove os estudantes automaticamente.</p></div></div>
+          <div class="card-heading"><div><h2>Ano letivo</h2><p>Ano atual: <strong id="admin-school-year-current"></strong>. Antes de avançar, será criado e validado um backup completo do banco. O arquivo ficará disponível para download.</p></div></div>
           <form id="school-year-form" class="school-year-form">
             <div><label class="field-label" for="school-year-input">Novo ano letivo</label><input class="text-input" id="school-year-input" type="number" min="2026" max="2100" step="1" required></div>
             <label class="school-year-confirm"><input id="school-year-confirm" type="checkbox" required> Confirmo que revisei o novo ano. A alteração não pode ser desfeita.</label>
             <button class="button button--primary" id="school-year-submit" type="submit">Atualizar ano</button>
           </form>
+          <div class="school-year-backup-status" id="school-year-backup-status" role="status" hidden>
+            Backup completo criado antes da alteração.
+            <a id="school-year-backup-link" download>Baixar backup</a>
+          </div>
         </div>
         </div>
         <div class="admin-panel" id="admin-panel-users" role="tabpanel" aria-labelledby="admin-tab-users" hidden>
@@ -183,6 +188,25 @@
           <div class="card-heading"><div><h2>Contas cadastradas</h2><p>Desativar uma conta encerra o acesso em todas as sessões.</p></div></div>
           <div class="table-scroll"><table><thead><tr><th>E-MAIL</th><th>PERFIL</th><th>STATUS</th><th></th></tr></thead><tbody id="managed-users-table"></tbody></table></div>
           <div class="empty-state" id="managed-users-empty" hidden><strong>Nenhum usuário cadastrado</strong></div>
+        </div>
+        </div>
+        <div class="admin-panel" id="admin-panel-backups" role="tabpanel" aria-labelledby="admin-tab-backups" hidden>
+        <div class="content-card user-management-card backup-card">
+          <div class="card-heading"><div><h2>Criar backup</h2><p>Gera uma cópia completa e validada do banco de dados, com estudantes, termos, assinaturas e usuários. O arquivo fica guardado no servidor e é baixado em seguida.</p></div></div>
+          <button class="button button--primary" id="backup-create-button" type="button">Criar e baixar backup <span>↓</span></button>
+        </div>
+        <div class="content-card user-management-card backup-card">
+          <div class="card-heading"><div><h2>Restaurar backup</h2><p>Substitui <strong>todos</strong> os dados atuais pelo conteúdo do arquivo SQLite. Antes da troca, um backup de segurança do banco atual é criado. Ao final, todas as sessões são encerradas e será preciso entrar novamente com uma conta existente no backup.</p></div></div>
+          <form id="backup-restore-form" class="backup-restore-form">
+            <div><label class="field-label" for="backup-restore-file">Arquivo de backup (.sqlite3, .sqlite ou .db, até 64 MB)</label><input class="text-input" id="backup-restore-file" name="backup" type="file" accept=".sqlite3,.sqlite,.db,application/vnd.sqlite3,application/x-sqlite3" required></div>
+            <label class="school-year-confirm"><input id="backup-restore-confirm" type="checkbox" required> Entendo que os dados atuais serão substituídos.</label>
+            <button class="button button--danger-quiet" id="backup-restore-submit" type="submit">Restaurar</button>
+          </form>
+        </div>
+        <div class="content-card user-management-card">
+          <div class="card-heading"><div><h2>Backups no servidor</h2><p>Inclui backups manuais, os criados ao avançar o ano letivo e os de segurança gerados antes de cada restauração.</p></div></div>
+          <div class="table-scroll"><table><thead><tr><th>ARQUIVO</th><th>CRIADO EM</th><th>TAMANHO</th><th></th></tr></thead><tbody id="backups-table"></tbody></table></div>
+          <div class="empty-state" id="backups-empty" hidden><strong>Nenhum backup no servidor</strong></div>
         </div>
         </div>
       </section>

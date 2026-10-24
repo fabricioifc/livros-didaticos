@@ -124,7 +124,11 @@ O arquivo `nginx/default.conf` configura o proxy e encaminha o host original, IP
 
 Os modos dev e production usam o mesmo arquivo `data\livros.db`; não execute os dois ao mesmo tempo nem use dados reais em desenvolvimento.
 
-Faça backups regulares. Para produzir uma cópia consistente, pare o serviço, copie o arquivo no host e inicie-o novamente:
+Antes de cada avanço do ano letivo, a aplicação cria e valida uma cópia completa do banco SQLite antes de alterar os ciclos. O backup fica no diretório `data\backups` em produção (`data-dev\backups` no ambiente de desenvolvimento), dentro do volume persistente `/data`, e também é disponibilizado para download ao administrador após a migração. Em execução local, o diretório padrão é `backups`, ao lado do banco. Esses arquivos contêm dados pessoais, assinaturas e hashes de senha: restrinja o acesso, não os publique e mantenha cópias periódicas em outro local protegido.
+
+Na aba **Administração → Backup**, o administrador pode criar um backup completo a qualquer momento (o arquivo é guardado no mesmo diretório e baixado em seguida), baixar os backups existentes no servidor e restaurar um backup enviando o arquivo SQLite (até 64 MB). Antes de restaurar, a aplicação valida o arquivo e cria um backup de segurança do banco atual; se a troca falhar, o banco anterior é recuperado. Após a restauração, todas as sessões são encerradas e é preciso entrar com uma conta existente no backup. O `nginx/default.conf` aceita uploads maiores apenas nessa rota.
+
+Para produzir uma cópia manual adicional do banco, pare o serviço, copie o arquivo no host e inicie-o novamente:
 
 ```powershell
 docker compose stop nginx web
@@ -162,7 +166,7 @@ Cada ano letivo tem seu próprio termo. Ao iniciar um novo ano, estudantes ativo
 
 Português e Matemática são específicos da turma e do ano letivo. Os outros 13 títulos são volumes únicos: um empréstimo ainda não devolvido acompanha o estudante nos ciclos seguintes, sem gerar uma nova assinatura de entrega. Títulos já devolvidos não são reemitidos automaticamente. Ao corrigir a turma no ciclo atual, os novos volumes anuais são acrescentados sem apagar assinaturas anteriores. Cada assinatura é registrada com data e hora; a devolução também guarda o e-mail do servidor autenticado.
 
-O ano letivo inicial vem de `SCHOOL_YEAR` (por padrão, o ano corrente) e fica persistido no banco. Um administrador também pode alterá-lo na seção **Usuários → Ano letivo**: ao avançar, a aplicação cria imediatamente os ciclos e promoções faltantes; depois, novos ingressantes podem ser cadastrados/importados como 1º ano. A alteração vale para todos os servidores e persiste após reinícios, prevalecendo sobre uma variável de ambiente anterior. Não é permitido voltar para um ano menor, pois isso poderia reativar termos arquivados ou desfazer promoções; confira o ano antes de confirmar.
+O ano letivo inicial vem de `SCHOOL_YEAR` (por padrão, o ano corrente) e fica persistido no banco. Um administrador também pode alterá-lo na seção **Usuários → Ano letivo**: antes de avançar, a aplicação cria e valida um backup completo do banco; se essa etapa falhar, o ano não é alterado. Após o avanço, os ciclos e promoções faltantes são criados imediatamente e o backup fica disponível para download. Depois, novos ingressantes podem ser cadastrados/importados como 1º ano. A alteração vale para todos os servidores e persiste após reinícios, prevalecendo sobre uma variável de ambiente anterior. Não é permitido voltar para um ano menor, pois isso poderia reativar termos arquivados ou desfazer promoções; confira o ano antes de confirmar.
 
 ## Autenticação e usuários
 

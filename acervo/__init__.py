@@ -34,6 +34,11 @@ def create_app(test_config=None, allow_ephemeral_secret=False):
     )
     if test_config:
         app.config.update(test_config)
+    app.config["BACKUP_PATH"] = (
+        app.config.get("BACKUP_PATH")
+        or os.environ.get("BACKUP_PATH")
+        or str(Path(app.config["DATABASE_PATH"]).parent / "backups")
+    )
     app.config["PERMANENT_SESSION_LIFETIME"] = app.config["SESSION_MAX_AGE"]
     if not app.config["SECRET_KEY"]:
         if not allow_ephemeral_secret:

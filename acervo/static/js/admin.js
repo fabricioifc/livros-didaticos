@@ -1,7 +1,8 @@
 import { $ } from "./dom.js";
 import { state } from "./state.js";
 import { api, notify } from "./api.js";
-import { escapeHtml } from "./utils.js";
+import { escapeHtml, formatDate } from "./utils.js";
+import { showAuth } from "./auth.js";
 import { courseColorClass, renderCourseFilters, renderStudentCourseOptions } from "./courses.js";
 import { setView } from "./navigation.js";
 import { refreshStudents } from "./students.js";
@@ -101,7 +102,81 @@ export async function saveManagedUser(row) {
   }
 }
 
+function backupUrl(filename) {
+  return `/api/backups/${encodeURIComponent(filename)}`;
+}
+
+function downloadBackup(filename) {
+  const link = document.createElement("a");
+  link.href = backupUrl(filename);
+  link.download = filename;
+  link.click();
+}
+
+function formatSize(bytes) {
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1).replace(".", ",")} MB`;
+}
+
+function renderBackups(backups) {
+  $("#backups-table").innerHTML = backups.map((backup) => `
+    <tr>
+      <td class="mono-cell">${escapeHtml(backup.filename)}</td>
+      <td>${formatDate(backup.created_at, { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}</td>
+      <td>${formatSize(backup.size)}</td>
+      <td><a class="button button--secondary" href="${backupUrl(backup.filename)}" download="${escapeHtml(backup.filename)}">Baixar</a></td>
+    </tr>`).join("");
+  $("#backups-empty").hidden = backups.length > 0;
+  $("#backups-table").closest(".table-scroll").hidden = backups.length === 0;
+}
+
+export async function loadBackups() {
+  try {
+    const result = await api("/api/backups");
+    renderBackups(result.backups);
+  } catch (error) {
+    notify(error.message, "error");
+  }
+}
+
 export function bindAdmin() {
+  $("#backup-create-button").addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    try {
+      const result = await api("/api/backups", { method: "POST" });
+      downloadBackup(result.backup.filename);
+      notify("Backup criado e validado.");
+      await loadBackups();
+    } catch (error) {
+      notify(error.message, "error");
+    } finally {
+      button.disabled = false;
+    }
+  });
+
+  $("#backup-restore-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    if (!form.reportValidity()) return;
+    const file = $("#backup-restore-file").files[0];
+    if (!window.confirm(`Substituir todos os dados atuais pelo backup "${file.name}"?`)) return;
+    const button = $("#backup-restore-submit");
+    button.disabled = true;
+    try {
+      const body = new FormData();
+      body.append("backup", file);
+      const result = await api("/api/backups/restore", { method: "POST", body });
+      form.reset();
+      showAuth();
+      notify(`Backup restaurado. Entre novamente. Cópia de segurança: ${result.safety_backup.filename}.`);
+    } catch (error) {
+      notify(error.message, "error");
+    } finally {
+      button.disabled = false;
+    }
+  });
+
   $("#course-form").addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
@@ -161,6 +236,14 @@ export function bindAdmin() {
         method: "POST",
         body: JSON.stringify({ school_year: Number($("#school-year-input").value) }),
       });
+      if (result.backup) {
+        const backupLink = $("#school-year-backup-link");
+        backupLink.href = `/api/backups/${encodeURIComponent(result.backup.filename)}`;
+        backupLink.download = result.backup.filename;
+        $("#school-year-backup-status").hidden = false;
+        backupLink.click();
+      }
+      loadBackups();
       const enrollment = state.currentStudent?.enrollment;
       await refreshStudents();
       if (enrollment) {
