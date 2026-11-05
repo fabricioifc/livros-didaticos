@@ -7,7 +7,7 @@ services:
     entrypoint: ["/bin/sh", "-c"]
     command: ["touch /data/livros.db && chown app:app /data /data/livros.db"]
     volumes:
-      - ./data:/data
+      - ${DATA_DIR:-./data}:/data
     restart: "no"
   web:
     build:
@@ -27,7 +27,7 @@ services:
       database-init:
         condition: service_completed_successfully
     volumes:
-      - ./data:/data
+      - ${DATA_DIR:-./data}:/data
     init: true
   nginx:
     image: nginx:stable-alpine

@@ -113,7 +113,7 @@ O comando preserva as contas de servidores, apaga os registros estudantis do ban
    docker compose run --rm web python server.py create-user
    ```
 
-O Gunicorn escuta na porta 8000 somente na rede interna do Compose; a porta não é publicada no host. O Nginx encaminha as requisições para o serviço `web` e publica a porta local `127.0.0.1:8000` (configurável por `HOST_PORT`). O banco em `data\livros.db` é montado em `/data/livros.db` no container e espelhado no host. O Compose prepara automaticamente a pasta, o arquivo inicial e as permissões do banco.
+O Gunicorn escuta na porta 8000 somente na rede interna do Compose; a porta não é publicada no host. O Nginx encaminha as requisições para o serviço `web` e publica a porta local `127.0.0.1:8000` (configurável por `HOST_PORT`). O banco em `data\livros.db` é montado em `/data/livros.db` no container e espelhado no host. O Compose prepara automaticamente a pasta, o arquivo inicial e as permissões do banco. Para guardar o banco em outra pasta do host, defina `DATA_DIR` no `.env` (por exemplo, `/home/fabricio/dados/livros-didaticos`); isso é necessário no Dokploy, que clona o código de novo a cada deploy e apagaria a pasta `data` do projeto.
 
 ### Cloudflare Tunnel com Nginx
 
