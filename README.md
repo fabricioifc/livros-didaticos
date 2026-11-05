@@ -131,6 +131,8 @@ Na aba **Administração → Backup**, o administrador pode criar um backup comp
 
 O servidor mantém no máximo os 5 backups mais recentes, contando os manuais, os do avanço do ano letivo e os de segurança da restauração. Ao criar um novo, os mais antigos são apagados automaticamente; guarde fora do servidor as cópias que precisar manter por mais tempo.
 
+Além desses, o serviço `backup` do Compose faz uma cópia diária do banco: uma ao subir e outra por dia às 03:00 de Brasília (`BACKUP_HOUR_UTC=6`). Ele usa a API de backup do SQLite, que gera uma cópia consistente sem parar o app, confere cada cópia com `PRAGMA integrity_check` e guarda o arquivo comprimido em `backups/livros-AAAA-MM-DD-HHMMSS.db.gz` (data em UTC), ou na pasta definida em `BACKUP_DIR`. Ficam as 14 mais recentes (`BACKUP_KEEP`). Essas cópias ficam fora de `data/backups`, então a limpeza do app não as apaga. Os arquivos são criados só com permissão do dono. Para restaurar, descompacte (`gunzip`) e envie o `.db` pela aba **Administração → Backup**. Para uma cópia na hora: `docker compose run --rm backup python /scripts/backup.py --once`.
+
 Para produzir uma cópia manual adicional do banco, pare o serviço, copie o arquivo no host e inicie-o novamente:
 
 ```powershell

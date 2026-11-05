@@ -29,6 +29,26 @@ services:
     volumes:
       - ${DATA_DIR:-./data}:/data
     init: true
+  # Backup diário do banco (cópia consistente do SQLite), em BACKUP_DIR (padrão ./backups,
+  # fora do git). Fica separado de data/backups, que o app limita aos 5 mais recentes.
+  backup:
+    image: python:3.12-slim
+    restart: unless-stopped
+    command: ["python", "/scripts/backup.py"]
+    environment:
+      DATABASE_PATH: /data/livros.db
+      BACKUP_DIR: /backups
+      # Hora do backup em UTC: 6 = 03:00 de Brasília.
+      BACKUP_HOUR_UTC: ${BACKUP_HOUR_UTC:-6}
+      BACKUP_KEEP: ${BACKUP_KEEP:-14}
+    depends_on:
+      database-init:
+        condition: service_completed_successfully
+    volumes:
+      - ${DATA_DIR:-./data}:/data:ro
+      - ${BACKUP_DIR:-./backups}:/backups
+      - ./scripts:/scripts:ro
+    init: true
   nginx:
     image: nginx:stable-alpine
     restart: unless-stopped
